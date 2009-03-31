@@ -115,14 +115,15 @@ Building applications :
 ***********************
 
 The driver is provided with a few applications :
-w_scan-20081106     : searches for channels (initial or full search)
-scan-dvb-apps-1.1.1 : searches for channels (using an initial frequency list)
-tzap-dvb-apps-1.1.1 : tunes to a specific channel
+w_scan        : searches for channels (initial or full search)
+scan-dvb-apps : searches for channels (using an initial frequency list)
+tzap-dvb-apps : tunes to a specific channel
+dvbtools      : various DVB tools (dvbstream, dvbtune, dvbdate)
 
 There is also a conf/ directory which contains my configuration files. They
 are suitable for France (Paris) and need a freq_offset set to 166000.
 
-To build an utility, go into its directory and type 'gmake'.
+To build an utility, go into its directory and use 'gmake'.
 
 See apps/README for more details.
 
@@ -132,17 +133,17 @@ Using your device :
 First, perform an initial search using w_scan. It will generate a file
 containing frequencies airing on your location :
 
-cd w_scan-20081106 && ./w_scan -x > ../xx-MyCity
-(e.g. for me : ./w_scan -x > ../conf/fr-Paris)
+w_scan -x > xx-MyCity
+(e.g. for me : w_scan -x > fr-Paris)
 
 Then, scan for channels using the previous file and the scan utility :
 
-cd scan-dvb-apps-1.1.1 && ./scan ../xx-MyCity > ../channels.conf
+scan xx-MyCity > channels.conf
 
 channels.conf now contains a list of channels you can watch.
 
 Then, tune the device to a specific channel :
-cd tzap-dvb-apps-1.1.1 && ./tzap -rc ../channels.conf "MYCHANNEL"
+tzap -rc channels.conf "MYCHANNEL"
 
 Finally, you can view (or record) streamed data using the dvr0 device :
 mplayer /dev/dvb/adapter0/dvr0
@@ -171,6 +172,12 @@ http://www.linuxtv.org/docs/dvbapi/Contents.html
 
 Raaf's original work for the dvbusb driver :
 http://raaf.atspace.org/dvbusb
+
+V4L-Compat :
+http://www.tangobravo.co.uk/v4l-compat
+
+DVB Config Framework :
+http://mcentral.de/wiki/index.php5/DVBConfigFramework
 
 Author :
 ********

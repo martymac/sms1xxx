@@ -103,6 +103,15 @@ sms1xxx_frontend_read_ber(struct sms1xxx_softc *sc, u32 *ber)
 }
 
 int
+sms1xxx_frontend_read_ucblocks(struct sms1xxx_softc *sc, u32 *ucblocks)
+{
+    TRACE(TRACE_IOCTL,"\n");
+    int err = sms1xxx_usb_getstatistics(sc);
+    if(!err) *ucblocks=sc->fe_unc;
+    return err;
+}
+
+int
 sms1xxx_frontend_read_signal_strength(struct sms1xxx_softc *sc, u16 *strength)
 {
     TRACE(TRACE_IOCTL,"\n");
@@ -244,6 +253,10 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
             err = fe->read_ber(sc,(u32*)arg);
             TRACE(TRACE_IOCTL,"FE_READ_BER = %d\n",err);
             break;
+        case FE_READ_UNCORRECTED_BLOCKS:
+            err = fe->read_ucblocks(sc,(u32*)arg);
+            TRACE(TRACE_IOCTL,"FE_READ_UNCORRECTED_BLOCKS\n");
+            break;
         case FE_READ_SIGNAL_STRENGTH:
             err = fe->read_signal_strength(sc,(u16*)arg);
             TRACE(TRACE_IOCTL,"FE_READ_SIGNAL_STRENGTH = %d\n",err);
@@ -251,9 +264,6 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
         case FE_READ_SNR:
             err = fe->read_snr(sc,(u16*)arg);
             TRACE(TRACE_IOCTL,"FE_READ_SNR = %d\n",err);
-            break;
-        case FE_READ_UNCORRECTED_BLOCKS:
-            TRACE(TRACE_IOCTL,"FE_READ_UNCORRECTED_BLOCKS\n");
             break;
         case FE_SET_FRONTEND:
             err = fe->set_frontend(sc,(struct dvb_frontend_parameters *)arg);

@@ -303,6 +303,7 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u_char *packet,
 
                     sc->fe_snr = p->Stat.SNR;
                     sc->fe_ber = p->Stat.BER;
+                    sc->fe_unc = p->Stat.BERErrorCount;
         
                     if (p->Stat.InBandPwr < -95)
                         sc->fe_signal_strength = 0;
@@ -316,6 +317,7 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u_char *packet,
                     sc->fe_status = 0;
                     sc->fe_snr =
                     sc->fe_ber =
+                    sc->fe_unc =
                     sc->fe_signal_strength = 0;
                 }
                 DLG_COMPLETE(sc->dlg_status, DLG_STAT_DONE);

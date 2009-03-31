@@ -68,6 +68,7 @@ struct sms1xxx_frontend frontend = {
 
     .read_status = sms1xxx_frontend_read_status,
     .read_ber = sms1xxx_frontend_read_ber,
+    .read_ucblocks = sms1xxx_frontend_read_ucblocks,
     .read_signal_strength = sms1xxx_frontend_read_signal_strength,
     .read_snr = sms1xxx_frontend_read_snr,
 };

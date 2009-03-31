@@ -101,6 +101,7 @@ struct sms1xxx_frontend {
 
     int(*read_status)(struct sms1xxx_softc *sc, fe_status_t *status);
     int(*read_ber)(struct sms1xxx_softc *sc, u32 *ber);
+    int(*read_ucblocks)(struct sms1xxx_softc *sc, u32 *ucblocks);
     int(*read_signal_strength)(struct sms1xxx_softc *sc, u16 *strength);
     int(*read_snr)(struct sms1xxx_softc *sc, u16 *snr);
 };
@@ -162,7 +163,7 @@ struct sms1xxx_softc {
     struct cdev *frontenddev;
     struct dvb_frontend_parameters fe_params;
     fe_status_t fe_status;
-    u32 fe_ber;
+    u32 fe_ber, fe_unc;
     u16 fe_snr, fe_signal_strength;
     int feopen;
 
