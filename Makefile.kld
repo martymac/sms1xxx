@@ -1,3 +1,4 @@
+CFLAGS=-I./include
 SUBDIR=	firmwares
 CLEANFILES=	machine @
 SRCS=bus_if.h device_if.h opt_usb.h \

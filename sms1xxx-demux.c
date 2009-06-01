@@ -49,7 +49,7 @@
 #include "sms1xxx-usb.h"
 
 /* Linux stuff */
-#include "include/linux/dvb/dmx.h"
+#include "linux/dvb/dmx.h"
 
 /*******
  * Dvr *
@@ -177,7 +177,7 @@ sms1xxx_dvr_read(struct cdev *dev, struct uio *uio, int flag)
         ERR("read already in progress\n");
         return EBUSY;
     }
-        
+
     while((err = sms1xxx_dvr_get_data(sc,uio)) > 0) {
         if(flag & O_NONBLOCK)
             return EWOULDBLOCK;
@@ -353,7 +353,7 @@ sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u_char *p)
                  sc->dvr.woff += PACKET_SIZE;
                  if(sc->dvr.woff == sc->dvr.size)
                      sc->dvr.woff = 0;
-                 
+
                  mtx_lock(&sc->dvr.lock);
                  sc->dvr.wavail -= PACKET_SIZE;
                  sc->dvr.ravail += PACKET_SIZE;
@@ -577,7 +577,7 @@ sms1xxx_demux_write_section(struct sms1xxx_softc *sc,u_char *p,
         sms1xxx_demux_sectbuf_reset(sc,f,1,"corrupt packet");
         return 1;
     }
-                   
+
     payload = p + hlen;
     len = PACKET_SIZE - hlen;
 
@@ -676,7 +676,7 @@ sms1xxx_demux_clone(void *arg, struct ucred *cred, char *name,
     int filtnr = 0;
     int unit = -1;
     struct sms1xxx_softc *sc = arg;
-    
+
     TRACE(TRACE_OPEN,"name=%s\n",name);
 
     if (*dev != NULL || sc == NULL)
@@ -857,13 +857,13 @@ sms1xxx_demux_read(struct cdev *dev, struct uio *uio, int flag)
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
         return ENXIO;
     }
-    
+
     f = &sc->filter[filtnr];
     if(f->state & FILTER_SLEEP) {
         ERR("read already in progress\n");
         return EBUSY;
     }
-        
+
     while((err = sms1xxx_demux_read_section(sc,f,uio)) > 0) {
         if(flag & O_NONBLOCK)
             return EWOULDBLOCK;
@@ -991,7 +991,7 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
         return ENXIO;
     }
-    
+
     f = &sc->filter[filtnr];
     if(f->state & FILTER_BUSY) {
         ERR("ioctl on filter in progress\n");
@@ -1104,10 +1104,6 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
     case DMX_GET_STC:
         err = ENOTTY;
         ERR("DMX_GET_STC ioctl not implemented\n");
-        break;
-    case DMX_GET_EVENT:
-        err = ENOTTY;
-        ERR("DMX_GET_EVENT ioctl not implemented\n");
         break;
 #ifdef DIAGNOSTIC
     case SMS1XXX_SETBUFS:

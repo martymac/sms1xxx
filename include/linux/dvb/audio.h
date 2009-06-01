@@ -24,8 +24,7 @@
 #ifndef _DVBAUDIO_H_
 #define _DVBAUDIO_H_
 
-#include <sys/types.h>
-
+#include <linux/types.h>
 
 typedef enum {
 	AUDIO_SOURCE_DEMUX, /* Select the demux as the main source */
@@ -43,7 +42,9 @@ typedef enum {
 typedef enum {
 	AUDIO_STEREO,
 	AUDIO_MONO_LEFT,
-	AUDIO_MONO_RIGHT
+	AUDIO_MONO_RIGHT,
+	AUDIO_MONO,
+	AUDIO_STEREO_SWAPPED
 } audio_channel_select_t;
 
 
@@ -129,5 +130,6 @@ typedef uint16_t audio_attributes_t;
  * extracted by the PES parser.
  */
 #define AUDIO_GET_PTS              _IOR('o', 19, __u64)
+#define AUDIO_BILINGUAL_CHANNEL_SELECT _IO('o', 20)
 
 #endif /* _DVBAUDIO_H_ */

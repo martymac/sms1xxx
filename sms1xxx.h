@@ -53,7 +53,7 @@
 #endif
 
 /* Linux stuff */
-#include "include/linux/dvb/frontend.h"
+#include "linux/dvb/frontend.h"
 
 #define SMS1XXXUNIT(n) (minor(n))
 

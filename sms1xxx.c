@@ -181,7 +181,7 @@ sms1xxx_match(device_t self)
 
     TRACE(TRACE_PROBE,"vendor=%x, product=%x release=%04x\n"
           ,uaa->vendor, uaa->product, uaa->release);
-    
+
     info = sms1xxx_lookup(uaa->vendor, uaa->product);
     if(info == NULL) {
         return UMATCH_NONE;
@@ -208,10 +208,10 @@ sms1xxx_match(device_t self)
         (id->bInterfaceNumber != USB_SIANO_INTF_FWUPLD)) {
         return UMATCH_NONE;
     }
-                    
+
     return  UMATCH_VENDOR_PRODUCT;
 }
-    
+
 static int
 sms1xxx_attach(device_t self)
 {
@@ -226,7 +226,7 @@ sms1xxx_attach(device_t self)
     info = sms1xxx_lookup(uaa->vendor, uaa->product);
     if(info == NULL)
         return ENXIO;
-    
+
     sc->sc_dev = self;
     sc->udev = uaa->device;
     sc->device = info->device;
@@ -325,7 +325,7 @@ sms1xxx_detach(device_t self)
 
     sms1xxx_frontend_exit(sc);
     sms1xxx_demux_exit(sc);
-    sms1xxx_usb_exit(sc,1);
+    sms1xxx_usb_exit(sc);
 
     usbd_add_drv_event(USB_EVENT_DRIVER_DETACH,sc->udev,sc->sc_dev);
     return 0;

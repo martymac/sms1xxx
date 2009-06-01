@@ -30,8 +30,8 @@
 
 #include "sms1xxx.h"
 
-int sms1xxx_usb_init(struct sms1xxx_softc *) ;
-void sms1xxx_usb_exit(struct sms1xxx_softc *, int);
+int sms1xxx_usb_init(struct sms1xxx_softc *);
+void sms1xxx_usb_exit(struct sms1xxx_softc *);
 #ifdef DIAGNOSTIC
 int sms1xxx_usb_reinit(struct sms1xxx_softc *);
 #endif

@@ -1,11 +1,10 @@
 /*
- * version.h
+ * types.h
  *
- * Copyright (C) 2000 Holger Waechtler <holger@convergence.de>
- *                    for convergence integrated media GmbH
+ * Copyright (C) 2009 - Ganaël Laplanche, http://contribs.martymac.com
  *
  * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public License
+ * modify it under the terms of the GNU General Lesser Public License
  * as published by the Free Software Foundation; either version 2.1
  * of the License, or (at your option) any later version.
  *
@@ -20,10 +19,21 @@
  *
  */
 
-#ifndef _DVBVERSION_H_
-#define _DVBVERSION_H_
+/* Minimalistic linux/types.h to fit Linux header's includes */
 
-#define DVB_API_VERSION 5
-#define DVB_API_VERSION_MINOR 0
+#ifndef _LINUX_TYPES_H
+#define _LINUX_TYPES_H
 
-#endif /*_DVBVERSION_H_*/
+#include <sys/types.h>
+
+typedef uint64_t __u64;
+typedef uint32_t __u32;
+typedef uint16_t __u16;
+typedef uint8_t __u8;
+
+typedef int64_t __s64;
+typedef int32_t __s32;
+typedef int16_t __s16;
+typedef int8_t __s8;
+
+#endif

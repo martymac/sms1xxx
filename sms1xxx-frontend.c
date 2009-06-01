@@ -42,7 +42,7 @@
 #include "sms1xxx-frontend.h"
 
 /* Linux stuff */
-#include "include/linux/dvb/frontend.h"
+#include "linux/dvb/frontend.h"
 
 static d_open_t  sms1xxx_frontend_open;
 static d_close_t sms1xxx_frontend_close;
@@ -172,7 +172,7 @@ sms1xxx_frontend_open(struct cdev *dev, int flag, int mode, struct thread *p)
     struct sms1xxx_softc *sc;
     int err, unit = SMS1XXXUNIT(dev);
     TRACE(TRACE_OPEN,"flag=%d mode=%d unit=%d\n",flag,mode,unit);
-    
+
     sc = devclass_get_softc(sms1xxx_devclass,unit);
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
@@ -195,7 +195,7 @@ sms1xxx_frontend_close(struct cdev *dev, int flag, int mode, struct thread *p)
     struct sms1xxx_softc *sc;
     int unit = SMS1XXXUNIT(dev);
     TRACE(TRACE_OPEN,"flag=%d mode=%d unit=%d\n",flag,mode,unit);
-    
+
     sc = devclass_get_softc(sms1xxx_devclass, unit);
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_OPEN,"dying! sc=%p\n",sc);
@@ -232,7 +232,7 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
     int unit = SMS1XXXUNIT(dev);
     void *arg = addr;
     int err = 0;
-    
+
     sc = devclass_get_softc(sms1xxx_devclass,unit);
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_IOCTL,"dying! sc=%p\n",sc);

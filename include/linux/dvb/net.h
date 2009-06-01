@@ -1,9 +1,9 @@
-/* 
+/*
  * net.h
  *
  * Copyright (C) 2000 Marcus Metzler <marcus@convergence.de>
  *                  & Ralph  Metzler <ralph@convergence.de>
-                      for convergence integrated media GmbH
+ *                    for convergence integrated media GmbH
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -24,28 +24,20 @@
 #ifndef _DVBNET_H_
 #define _DVBNET_H_
 
-#ifndef LINUX_TYPES_ADDED
-#define LINUX_TYPES_ADDED
-#include <sys/types.h>
-typedef uint64_t __u64;
-typedef uint32_t __u32;
-typedef uint16_t __u16;
-typedef uint8_t __u8;
-#endif
-
+#include <linux/types.h>
 
 struct dvb_net_if {
 	__u16 pid;
 	__u16 if_num;
-	__u8 feedtype;
+	__u8  feedtype;
 #define DVB_NET_FEEDTYPE_MPE 0	/* multi protocol encapsulation */
 #define DVB_NET_FEEDTYPE_ULE 1	/* ultra lightweight encapsulation */
 };
 
 
-#define NET_ADD_IF                 _IOWR('o', 52, struct dvb_net_if)
-#define NET_REMOVE_IF              _IO('o', 53)
-#define NET_GET_IF                 _IOWR('o', 54, struct dvb_net_if)
+#define NET_ADD_IF    _IOWR('o', 52, struct dvb_net_if)
+#define NET_REMOVE_IF _IO('o', 53)
+#define NET_GET_IF    _IOWR('o', 54, struct dvb_net_if)
 
 
 /* binary compatibility cruft: */

@@ -128,7 +128,7 @@ sms1xxx_usb_init(struct sms1xxx_softc *sc)
 
 /* Un-initialize USB input/output pipes and xfers */
 void
-sms1xxx_usb_exit(struct sms1xxx_softc *sc, int detach)
+sms1xxx_usb_exit(struct sms1xxx_softc *sc)
 {
     int i;
     TRACE(TRACE_USB,"sc=%p init=%d\n",sc,sc->usbinit);
@@ -152,13 +152,11 @@ sms1xxx_usb_exit(struct sms1xxx_softc *sc, int detach)
         usbd_close_pipe(sc->ipipe);
         sc->ipipe = NULL;
     }
-    if(detach) {
-        for(i = 0; i < MAXXFERS; ++i) {
-            if(sc->sbuf[i].xfer != NULL) {
-                /* Implicit buffer free */
-                usbd_free_xfer(sc->sbuf[i].xfer);
-                sc->sbuf[i].xfer = NULL;
-            }
+    for(i = 0; i < MAXXFERS; ++i) {
+        if(sc->sbuf[i].xfer != NULL) {
+            /* Implicit buffer free */
+            usbd_free_xfer(sc->sbuf[i].xfer);
+            sc->sbuf[i].xfer = NULL;
         }
     }
 
@@ -304,7 +302,7 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u_char *packet,
                     sc->fe_snr = p->Stat.SNR;
                     sc->fe_ber = p->Stat.BER;
                     sc->fe_unc = p->Stat.BERErrorCount;
-        
+
                     if (p->Stat.InBandPwr < -95)
                         sc->fe_signal_strength = 0;
                     else if (p->Stat.InBandPwr > -29)
@@ -489,26 +487,26 @@ sms1xxx_usb_wait(struct sms1xxx_softc *sc,
     struct timeval tv_start;
     struct timeval tv;
     int ms;
-  
+
     microtime(&tv_start);
-  
+
     do {
         pause("pause",5);
-  
+
         microtime(&tv);
         timevalsub(&tv,&tv_start);
         ms = tv.tv_sec * 1000 + tv.tv_usec / 1000;
-  
+
         if(sc->sc_dying) {
             TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
             return USBD_CANCELLED;
         }
-        
+
         if (DLG_ISCOMPLETE(sc->dlg_status, completion))
             return 0;
     }
     while (ms < delay_ms);
-  
+
     return USBD_TIMEOUT;
 }
 
@@ -518,18 +516,18 @@ sms1xxx_usb_write_and_wait(struct sms1xxx_softc *sc, const u8 *wbuf,
     u_int32_t wlen, unsigned char completion, unsigned int delay_ms)
 {
     int err;
-  
+
     TRACE(TRACE_USB,"completion=%u(0x%x),delay_ms=%d\n",completion,
         completion,delay_ms);
-  
+
     DLG_INIT(sc->dlg_status, completion);
     err = sms1xxx_usb_write(sc, wbuf, wlen);
     if (err == 0) {
         err = sms1xxx_usb_wait(sc, completion, delay_ms);
     }
-  
+
     TRACE(TRACE_USB,"done, err=%d\n",err);
-  
+
     return err;
 }
 

@@ -33,7 +33,7 @@
 #define SMS1XXX_DIAGNOSTIC_H
 
 #ifdef DIAGNOSTIC
-            
+
 struct sms1xxx_stats {
     u_int32_t min_wavail;
     u_int32_t max_wavail;
