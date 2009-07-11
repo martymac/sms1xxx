@@ -1,4 +1,4 @@
-/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 7.0 and higher:
+/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
  *  Copyright (C) 2008 - Ganaël Laplanche, http://contribs.martymac.com
  *
@@ -73,51 +73,49 @@ static struct cdevsw sms1xxx_dvr_cdevsw = {
 static int
 sms1xxx_dvr_open(struct cdev *dev, int flag, int mode, struct thread *p)
 {
-    struct sms1xxx_softc *sc;
-    int unit = SMS1XXXUNIT(dev);
+    struct sms1xxx_softc *sc = dev->si_drv1;
+    int unit = device_get_unit(sc->sc_dev);
     TRACE(TRACE_OPEN,"flag=%d, mode=%d, unit=%d\n", flag, mode, unit);
 
-    sc = devclass_get_softc(sms1xxx_devclass,unit);
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
-        return ENXIO;
+        return (ENXIO);
     }
     if(sc->dvr.state & DVR_OPEN)
-        return EBUSY;
+        return (EBUSY);
 
     sc->dvr.state |= DVR_OPEN;
-    return 0;
+    return (0);
 }
 
 static int
 sms1xxx_dvr_close(struct cdev *dev, int flag, int mode, struct thread *p)
 {
-    struct sms1xxx_softc *sc;
-    int unit = SMS1XXXUNIT(dev);
+    struct sms1xxx_softc *sc = dev->si_drv1;
+    int unit = device_get_unit(sc->sc_dev);
     TRACE(TRACE_OPEN,"flag=%d, mode=%d, filter=%d\n",
         flag, mode, unit);
 
-    sc = devclass_get_softc(sms1xxx_devclass, unit);
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
-        return ENXIO;
+        return (ENXIO);
     }
     sc->dvr.state &= ~DVR_OPEN;
-    return 0;
+    return (0);
 }
 
 static inline int
 sms1xxx_dvr_get_data(struct sms1xxx_softc *sc, struct uio *uio)
 {
     int err = 0;
-    u_int32_t todo, total;
+    u32 todo, total;
 #if 0
     sc->dvr.threshold = MIN(uio->uio_resid, DVRBUFSIZE/3);
     if(sc->dvr.threshold < PACKET_SIZE)
         sc->dvr.threshold = PACKET_SIZE;
 #endif
     if(sc->dvr.ravail < sc->dvr.threshold)
-        return EBUSY;
+        return (EBUSY);
 
     TRACE(TRACE_DVR_READ,"wants: %u bytes, got: %u bytes\n",
         uio->uio_resid, sc->dvr.ravail);
@@ -128,18 +126,18 @@ sms1xxx_dvr_get_data(struct sms1xxx_softc *sc, struct uio *uio)
     if(total > sc->dvr.size) {
         ERR("total > dvrsize, this shouldn't happen! %d > %d\n",
             total, sc->dvr.size);
-        return -EOVERFLOW;
+        return (-EOVERFLOW);
     }
 
     err = uiomove(sc->dvr.buf + sc->dvr.roff, todo, uio);
     if(err)
-        return -err;
+        return (-err);
 
     if(todo < total) {
         sc->dvr.roff = total - todo;
         err = uiomove(sc->dvr.buf, sc->dvr.roff, uio);
         if(err)
-            return -err;
+            return (-err);
     }
     else {
         sc->dvr.roff += total;
@@ -157,30 +155,29 @@ sms1xxx_dvr_get_data(struct sms1xxx_softc *sc, struct uio *uio)
            sc->stats.min_ravail = sc->dvr.ravail;
 #endif
     mtx_unlock(&sc->dvr.lock);
-    return uio->uio_resid;
+    return (uio->uio_resid);
 }
 
 static int
 sms1xxx_dvr_read(struct cdev *dev, struct uio *uio, int flag)
 {
-    struct sms1xxx_softc *sc;
-    int err, unit = SMS1XXXUNIT(dev);
+    struct sms1xxx_softc *sc = dev->si_drv1;
+    int err = 0;
 
     TRACE(TRACE_DVR_READ,"\n");
 
-    sc = devclass_get_softc(sms1xxx_devclass, unit);
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
-        return ENXIO;
+        return (ENXIO);
     }
     if(sc->dvr.state & DVR_SLEEP) {
         ERR("read already in progress\n");
-        return EBUSY;
+        return (EBUSY);
     }
 
     while((err = sms1xxx_dvr_get_data(sc,uio)) > 0) {
         if(flag & O_NONBLOCK)
-            return EWOULDBLOCK;
+            return (EWOULDBLOCK);
 
         sc->dvr.state |= DVR_SLEEP;
         err = tsleep(&sc->dvr, PZERO | PCATCH, "dvrrd", 0);
@@ -188,23 +185,21 @@ sms1xxx_dvr_read(struct cdev *dev, struct uio *uio, int flag)
 
         if(sc->sc_dying) {
             TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
-            return ENXIO;
+            return (ENXIO);
         }
         else if(err)
-            return err;
+            return (err);
     }
-    return -err;
+    return (-err);
 }
 
 static int
 sms1xxx_dvr_poll(struct cdev *dev, int events, struct thread *p)
 {
-    struct sms1xxx_softc *sc;
-    int unit = SMS1XXXUNIT(dev);
+    struct sms1xxx_softc *sc = dev->si_drv1;
     int revents = 0;
     TRACE(TRACE_DVR_READ,"thread=%p, events=%d\n", p, events);
 
-    sc = devclass_get_softc(sms1xxx_devclass, unit);
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
         return ((events & (POLLIN | POLLOUT | POLLRDNORM |
@@ -227,7 +222,7 @@ sms1xxx_dvr_poll(struct cdev *dev, int events, struct thread *p)
         /* Write is not allowed, so no point blocking on it */
         revents |= events & (POLLOUT | POLLWRNORM);
     }
-    return revents;
+    return (revents);
 }
 
 /***********
@@ -242,7 +237,7 @@ static d_poll_t sms1xxx_demux_poll;
 
 static struct cdevsw sms1xxx_demux_cdevsw = {
     .d_version  = D_VERSION,
-    .d_flags    = D_NEEDGIANT,
+    .d_flags    = D_NEEDGIANT | D_NEEDMINOR,
     .d_open     = sms1xxx_demux_open,
     .d_close    = sms1xxx_demux_close,
     .d_ioctl    = sms1xxx_demux_ioctl,
@@ -252,12 +247,12 @@ static struct cdevsw sms1xxx_demux_cdevsw = {
 };
 
 static int
-sms1xxx_demux_write_section(struct sms1xxx_softc *sc,u_char *p,
+sms1xxx_demux_write_section(struct sms1xxx_softc *sc, u8 *p,
     struct filter *f);
 
 static void
 sms1xxx_demux_sectbuf_reset(struct sms1xxx_softc *sc,
-    struct filter *f,int wake,char *msg);
+    struct filter *f, int wake, char *msg);
 
 static void
 sms1xxx_demux_clone(void *arg, struct ucred *cred, char *name,
@@ -287,6 +282,8 @@ sms1xxx_demux_init(struct sms1xxx_softc *sc)
         UID_ROOT, GID_WHEEL, 0666,
         "dvb/adapter%d/dvr0",
         device_get_unit(sc->sc_dev));
+    if (sc->dvr.dev != NULL)
+        sc->dvr.dev->si_drv1 = sc;
 
     TRACE(TRACE_MODULE,"created dvr0 device, addr=%p\n",sc->dvr.dev);
 }
@@ -334,12 +331,12 @@ sms1xxx_demux_exit(struct sms1xxx_softc *sc)
 
 /* Called from usb interrupt callback */
 void
-sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u_char *p)
+sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
 {
     int i, done = 0, dvrdone = 0;
-    u_int16_t pid = TS_GET_PID(p);
+    u16 pid = TS_GET_PID(p);
 #ifdef DIAGNOSTIC
-    u_char cc = TS_GET_CC(p);
+    u8 cc = TS_GET_CC(p);
 #endif
 
     for(i = 0; i < MAX_FILTERS && !done ; ++i) {
@@ -359,14 +356,14 @@ sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u_char *p)
                  sc->dvr.ravail += PACKET_SIZE;
 #ifdef DIAGNOSTIC
                  if(sc->dvr.wavail < sc->stats.min_wavail)
-                      sc->stats.min_wavail = sc->dvr.wavail;
+                     sc->stats.min_wavail = sc->dvr.wavail;
                  if(sc->dvr.ravail > sc->stats.max_ravail)
                      sc->stats.max_ravail = sc->dvr.ravail;
 #endif
                  mtx_unlock(&sc->dvr.lock);
                  if(sc->dvr.nobufs != 0) {
                      WARN("%u packets dropped due to no "
-                        "buffer space\n", sc->dvr.nobufs);
+                         "buffer space\n", sc->dvr.nobufs);
                      sc->dvr.nobufs = 0;
                  }
              }
@@ -379,7 +376,7 @@ sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u_char *p)
          }
          else if(f->type == FILTER_TYPE_SECT) {
 #ifndef DIAGNOSTIC
-             u_char cc = TS_GET_CC(p);
+             u8 cc = TS_GET_CC(p);
 #endif
              if(cc == f->cc)
                  done = sms1xxx_demux_write_section(sc, p, f);
@@ -416,18 +413,18 @@ sms1xxx_demux_dev2filtnr(struct cdev *dev)
     TRACE(TRACE_FILTERS, "dev=%p\n", dev);
     struct sms1xxx_softc *sc;
 
-    if(dev == NULL) return -1;
+    if(dev == NULL) return (-1);
 
     sc = dev->si_drv1;
 
     if((sc == NULL) || (sc->sc_dying))
-        return -1;
+        return (-1);
 
     for(int i = 0; i < MAX_FILTERS; ++i) {
         if (sc->filter[i].dev == dev)
-            return i;
+            return (i);
     }
-    return -1;
+    return (-1);
 }
 
 /* Return the first matching filter given a pid.
@@ -436,14 +433,14 @@ sms1xxx_demux_dev2filtnr(struct cdev *dev)
    for any PID requested. This behaviour avoids setting
    both PIDALL and 'real' filters in our pool */
 static int
-sms1xxx_demux_pid2filtnr(struct sms1xxx_softc *sc, u_int16_t pid)
+sms1xxx_demux_pid2filtnr(struct sms1xxx_softc *sc, u16 pid)
 {
     TRACE(TRACE_FILTERS, "sc=%p, pid=%d\n", sc, pid);
     if((sc == NULL) || (sc->sc_dying))
-        return -1;
+        return (-1);
 
     if(pid > PIDALL)
-        return -1;
+        return (-1);
 
     for(int i = 0; i < MAX_FILTERS; ++i) {
         /* Skip uninitialized filters */
@@ -456,15 +453,15 @@ sms1xxx_demux_pid2filtnr(struct sms1xxx_softc *sc, u_int16_t pid)
            the first filter used */
         if ((pid == PIDALL) &&
             ((sc->filter[i].pid & PIDMAX) <= PIDMAX))
-            return i;
+            return (i);
 
         /* If pid or PIDALL found, return
            the corresponding filter */
         if (((sc->filter[i].pid & PIDMAX) == pid) ||
             ((sc->filter[i].pid & PIDALL) == PIDALL))
-            return i;
+            return (i);
     }
-    return -1;
+    return (-1);
 }
 
 /* Called on each sms1xxx_demux_start() */
@@ -482,7 +479,7 @@ sms1xxx_demux_stream_ref(struct sms1xxx_softc *sc)
                 sc->streamrefs = 0;
         }
     */
-    return err;
+    return (err);
 }
 
 /* Called on each sms1xxx_demux_stop() */
@@ -501,7 +498,7 @@ sms1xxx_demux_stream_deref(struct sms1xxx_softc *sc)
                 sc->streamrefs++;
         }
     */
-    return err;
+    return (err);
 }
 
 static int
@@ -510,14 +507,14 @@ sms1xxx_demux_start(struct sms1xxx_softc *sc, struct filter *f)
     int err = 0;
     TRACE(TRACE_FILTERS, "sc=%p, filter=%p\n", sc, f);
     if(f->pid == PIDEMPTY)
-        return EINVAL;
+        return (EINVAL);
 
     f->pid &= ~PIDSTOPPED;
     if(!(f->state & FILTER_STREAMING)) {
         if((err = sms1xxx_demux_stream_ref(sc)) == 0) 
             f->state |= FILTER_STREAMING;
     }
-    return err;
+    return (err);
 }
 
 static int
@@ -526,14 +523,14 @@ sms1xxx_demux_stop(struct sms1xxx_softc *sc, struct filter *f)
     int err = 0;
     TRACE(TRACE_FILTERS, "sc=%p, filter=%p\n", sc, f);
     if(f->pid == PIDEMPTY)
-        return EINVAL;
+        return (EINVAL);
 
     if(f->state & FILTER_STREAMING) {
         if((err = sms1xxx_demux_stream_deref(sc)) == 0)
             f->state &= ~FILTER_STREAMING;
     }
     f->pid |= PIDSTOPPED;
-    return err;
+    return (err);
 }
 
 static void
@@ -564,28 +561,28 @@ sms1xxx_demux_sectbuf_reset(struct sms1xxx_softc *sc, struct filter *f,
 }
 
 static int
-sms1xxx_demux_write_section(struct sms1xxx_softc *sc,u_char *p,
+sms1xxx_demux_write_section(struct sms1xxx_softc *sc, u8 *p,
     struct filter *f)
 {
-    u_int8_t hlen, len, total, count;
-    u_char *payload;
+    u8 hlen, len, total, count;
+    u8 *payload;
     if(!TS_HAS_PAYLOAD(p))
-        return 1;
+        return (1);
 
     hlen = TS_GET_HDR_LEN(p);
     if(hlen >= PACKET_SIZE) {
-        sms1xxx_demux_sectbuf_reset(sc,f,1,"corrupt packet");
-        return 1;
+        sms1xxx_demux_sectbuf_reset(sc, f, 1, "corrupt packet");
+        return (1);
     }
 
     payload = p + hlen;
     len = PACKET_SIZE - hlen;
 
     if(TS_HAS_PUSI(p)) {
-        u_int8_t off = TS_GET_SECT_OFF(payload);
+        u8 off = TS_GET_SECT_OFF(payload);
         if((hlen + off + 3) > PACKET_SIZE) {
-            sms1xxx_demux_sectbuf_reset(sc,f,1,"corrupt packet");
-            return 1;
+            sms1xxx_demux_sectbuf_reset(sc, f, 1, "corrupt packet");
+            return (1);
         }
 #ifdef DIAGNOSTIC
         /* XXX Check if the old section is finished */
@@ -599,27 +596,27 @@ sms1xxx_demux_write_section(struct sms1xxx_softc *sc,u_char *p,
         payload += off; len -= off;
         if((TS_GET_SECT_TBLID(payload) & f->mask) != f->value) {
             f->wtodo = 0;
-            return 0;
+            return (0);
         }
         f->wtodo = TS_GET_SECT_LEN(payload);
         TRACE(TRACE_SECT,"pid: %hu writing new section len: %d\n",
             f->pid, f->wtodo);
     }
     if(f->wtodo == 0)
-        return 0;
+        return (0);
 
     total = MIN(f->wtodo,len);
     if(total > f->wavail) {
 #ifdef DIAGNOSTIC
         WARN("pid: %hu no section buffer space available\n",f->pid);
 #endif
-        sms1xxx_demux_sectbuf_reset(sc,f,1,"no buffer space");
-        return 0;
+        sms1xxx_demux_sectbuf_reset(sc, f, 1, "no buffer space");
+        return (0);
     }
     if(total > f->size) {
         ERR("total > f->size, this shouldn't happen! %d > %d\n",
             total,f->size);
-        return 1;
+        return (1);
     }
 
     TRACE(TRACE_SECT,"pid: %hu writing %d bytes to section\n",
@@ -665,7 +662,7 @@ sms1xxx_demux_write_section(struct sms1xxx_softc *sc,u_char *p,
     if(total < len && TS_GET_SECT_TBLID(payload+total) != 0xFF)
         WARN("possible section(s) discarded\n");
 #endif
-    return 0;
+    return (0);
 }
 
 static void
@@ -703,7 +700,7 @@ sms1xxx_demux_clone(void *arg, struct ucred *cred, char *name,
 
     if(clone_create(&sc->demux_clones,&sms1xxx_demux_cdevsw,&unit,dev,0)) {
         *dev = make_dev_credf(MAKEDEV_REF, &sms1xxx_demux_cdevsw,
-            unit2minor(unit), NULL, UID_ROOT, GID_WHEEL,
+            unit, NULL, UID_ROOT, GID_WHEEL,
             0666, "dvb/adapter%d/demux0.%d",
             device_get_unit(sc->sc_dev), filtnr);
         if(*dev != NULL) {
@@ -727,7 +724,7 @@ sms1xxx_demux_open(struct cdev *dev, int flag, int mode, struct thread *p)
 
     if (filtnr < 0) {
         ERR("filter not found\n");
-        return ENOENT;
+        return (ENOENT);
     }
 
     TRACE(TRACE_OPEN,"flag=%d, mode=%d, filtnr=%d\n", flag, mode, filtnr);
@@ -735,20 +732,20 @@ sms1xxx_demux_open(struct cdev *dev, int flag, int mode, struct thread *p)
     sc = dev->si_drv1;
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
-        return ENXIO;
+        return (ENXIO);
     }
 
     f = &sc->filter[filtnr];
     if(f->pid != PIDCLONED) {
         TRACE(TRACE_OPEN,"busy!\n");
-        return EBUSY;
+        return (EBUSY);
     }
 
     err = sms1xxx_usb_ref(sc);
     if(!err)
         f->pid = PIDEMPTY;
 
-    return err;
+    return (err);
 }
 
 static inline int
@@ -756,15 +753,15 @@ sms1xxx_demux_read_section(struct sms1xxx_softc *sc, struct filter *f,
     struct uio *uio)
 {
     int err = 0;
-    u_int32_t roff, rtodo, count, total;
+    u32 roff, rtodo, count, total;
     TRACE(TRACE_SECT,"pid: %hu sectcnt: %d overflow: %s\n", f->pid,
         f->sectcnt, f->state & FILTER_OVERFLOW ? "yes" : "no" );
 
     if(f->sectcnt == 0)
-        return EBUSY;
+        return (EBUSY);
     else if(f->state & FILTER_OVERFLOW) {
         f->state &= ~FILTER_OVERFLOW;
-        return -EOVERFLOW;
+        return (-EOVERFLOW);
     }
 
     mtx_lock(&sc->filterlock);
@@ -792,7 +789,7 @@ sms1xxx_demux_read_section(struct sms1xxx_softc *sc, struct filter *f,
     if(total > f->size) {
         ERR("total > fsize, this shouldn't happen! %d > %d\n",
             total, f->size);
-        return -EOVERFLOW;
+        return (-EOVERFLOW);
     }
 
     TRACE(TRACE_SECT,"pid: %hu reading %d bytes from section\n",
@@ -800,13 +797,13 @@ sms1xxx_demux_read_section(struct sms1xxx_softc *sc, struct filter *f,
 
     err = uiomove(f->buf + roff, count, uio);
     if(err)
-        return -err;
+        return (-err);
 
     if(count < total) {
         roff = total - count;
         err = uiomove(f->buf,roff, uio);
         if(err)
-            return -err;
+            return (-err);
     }
     else {
         roff += total;
@@ -824,9 +821,9 @@ sms1xxx_demux_read_section(struct sms1xxx_softc *sc, struct filter *f,
         f->state &= ~FILTER_OVERFLOW;
         mtx_unlock(&sc->filterlock);
         if(rtodo == 0)
-            return 0;
+            return (0);
         else
-            return -EOVERFLOW;
+            return (-EOVERFLOW);
     }
     f->sectcnt--;
     f->rtodo = rtodo;
@@ -834,7 +831,7 @@ sms1xxx_demux_read_section(struct sms1xxx_softc *sc, struct filter *f,
     f->ravail -= total;
     f->wavail += total;
     mtx_unlock(&sc->filterlock);
-    return 0;
+    return (0);
 }
 
 static int
@@ -842,12 +839,12 @@ sms1xxx_demux_read(struct cdev *dev, struct uio *uio, int flag)
 {
     struct sms1xxx_softc *sc;
     struct filter *f;
-    int err;
+    int err = 0;
     int filtnr = sms1xxx_demux_dev2filtnr(dev);
 
     if (filtnr < 0) {
         ERR("filter not found\n");
-        return EBADF;
+        return (EBADF);
     }
 
     TRACE(TRACE_READ,"filtnr=%d, flag=%d\n",filtnr,flag);
@@ -855,18 +852,18 @@ sms1xxx_demux_read(struct cdev *dev, struct uio *uio, int flag)
     sc = dev->si_drv1;
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
-        return ENXIO;
+        return (ENXIO);
     }
 
     f = &sc->filter[filtnr];
     if(f->state & FILTER_SLEEP) {
         ERR("read already in progress\n");
-        return EBUSY;
+        return (EBUSY);
     }
 
     while((err = sms1xxx_demux_read_section(sc,f,uio)) > 0) {
         if(flag & O_NONBLOCK)
-            return EWOULDBLOCK;
+            return (EWOULDBLOCK);
 
         f->state |= FILTER_SLEEP;
         err = tsleep(f, PZERO | PCATCH, "dmxrd", 0);
@@ -874,12 +871,12 @@ sms1xxx_demux_read(struct cdev *dev, struct uio *uio, int flag)
 
         if(sc->sc_dying) {
             TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
-            return ENXIO;
+            return (ENXIO);
         }
         else if(err)
-            return err;
+            return (err);
     }
-    return -err;
+    return (-err);
 }
 
 static int
@@ -892,7 +889,7 @@ sms1xxx_demux_poll(struct cdev *dev, int events, struct thread *p)
 
     if (filtnr < 0) {
         ERR("filter not found\n");
-        return EFAULT;
+        return (EFAULT);
     }
 
     TRACE(TRACE_POLL,"thread=%p, events=%d, filtnr=%d\n",p,events,filtnr);
@@ -921,7 +918,7 @@ sms1xxx_demux_poll(struct cdev *dev, int events, struct thread *p)
         /* Write is not allowed, so no point blocking on it */
         revents |= events & (POLLOUT | POLLWRNORM);
     }
-    return revents;
+    return (revents);
 }
 
 static int
@@ -933,7 +930,7 @@ sms1xxx_demux_close(struct cdev *dev, int flag, int mode, struct thread *p)
 
     if (filtnr < 0) {
         ERR("filter not found\n");
-        return EBADF;
+        return (EBADF);
     }
 
     TRACE(TRACE_OPEN,"flag=%d, mode=%d, filtnr=%d\n", flag, mode, filtnr);
@@ -941,7 +938,7 @@ sms1xxx_demux_close(struct cdev *dev, int flag, int mode, struct thread *p)
     sc = dev->si_drv1;
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
-        return ENXIO;
+        return (ENXIO);
     }
     f = &sc->filter[filtnr];
 
@@ -966,7 +963,7 @@ sms1xxx_demux_close(struct cdev *dev, int flag, int mode, struct thread *p)
     f->pid = PIDFREE;
     destroy_dev_sched(dev);
 
-    return 0;
+    return (0);
 }
 
 static int
@@ -983,19 +980,19 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
 
     if (filtnr < 0) {
         ERR("filter not found\n");
-        return EBADF;
+        return (EBADF);
     }
 
     sc = dev->si_drv1;
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
-        return ENXIO;
+        return (ENXIO);
     }
 
     f = &sc->filter[filtnr];
     if(f->state & FILTER_BUSY) {
         ERR("ioctl on filter in progress\n");
-        return EBUSY;
+        return (EBUSY);
     }
     f->state |= FILTER_BUSY;
 
@@ -1070,7 +1067,7 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
                 }
             }
 
-            sms1xxx_demux_sectbuf_reset(sc,f,0,"init");
+            sms1xxx_demux_sectbuf_reset(sc, f, 0, "init");
             f->type = FILTER_TYPE_SECT;
             f->mask = p->filter.mask[0];
             f->value = p->filter.filter[0];
@@ -1106,47 +1103,6 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
         ERR("DMX_GET_STC ioctl not implemented\n");
         break;
 #ifdef DIAGNOSTIC
-    case SMS1XXX_SETBUFS:
-        {
-            struct sms1xxx_bufs *bufs = arg;
-            TRACE(TRACE_IOCTL,"SMS1XXX_SETBUFS\n");
-            if(sc->streamrefs != 0) {
-                ERR("can't resize buffers while streaming\n");
-                err = EBUSY; break;
-            }
-            if(sc->dvr.state & DVR_OPEN) {
-                ERR("can't resize buffers while dvr is open\n");
-                err = EBUSY; break;
-            }
-            if(bufs->dvrsize % PACKET_SIZE ||
-               bufs->dvrsize < (10 * PACKET_SIZE)) {
-                ERR("dvrsize must be multiple of %d\n",PACKET_SIZE);
-                err = EINVAL; break;
-            }
-            if(bufs->sbufsize % 512 ||
-               bufs->sbufsize < 512) {
-                ERR("sbufsize must be multiple of 512\n");
-                err = EINVAL; break;
-            }
-            if(bufs->threshold < PACKET_SIZE) {
-                ERR("threshold must be a minimum of %d\n",PACKET_SIZE);
-                err = EINVAL; break;
-            }
-            sc->dvr.threshold = bufs->threshold;
-            sc->dvr.size = bufs->dvrsize;
-            sc->sbufsize = bufs->sbufsize;
-            err = sms1xxx_usb_reinit(sc);
-            break;
-        }
-    case SMS1XXX_GETBUFS:
-        {
-            struct sms1xxx_bufs *bufs = arg;
-            TRACE(TRACE_IOCTL,"SMS1XXX_GETBUFS\n");
-            bufs->threshold = sc->dvr.threshold;
-            bufs->dvrsize = sc->dvr.size;
-            bufs->sbufsize = sc->sbufsize;
-            break;
-        }
     case SMS1XXX_GET_STATS:
         {
             struct sms1xxx_stats *stats = arg;
@@ -1168,5 +1124,5 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
         break;
     }
     f->state &= ~FILTER_BUSY;
-    return err;
+    return (err);
 }

@@ -1,4 +1,4 @@
-/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 7.0 and higher:
+/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
  *  Copyright (C) 2008 - Ganaël Laplanche, http://contribs.martymac.com
  *
@@ -28,13 +28,14 @@
 #ifndef SMS1XXX_H
 #define SMS1XXX_H
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <sys/systm.h>
+#include <sys/kernel.h>
 #include <sys/module.h>
-#include <sys/param.h>
 #include <sys/bus.h>
 
-/* usbdi(9) stuff */
+/* usb(4) stuff */
 #include <dev/usb/usb.h>
 #include <dev/usb/usbdi.h>
 #include <dev/usb/usbdi_util.h>
@@ -54,8 +55,6 @@
 
 /* Linux stuff */
 #include "linux/dvb/frontend.h"
-
-#define SMS1XXXUNIT(n) (minor(n))
 
 #define TRACE_PROBE     0x0001
 #define TRACE_MODULE    0x0002
@@ -115,9 +114,6 @@ struct sms1xxx_device {
 
     const char * firmware[DEVICE_MODE_MAX]; /* supported firmwares */
 
-    int bulk_ctrl_endpoint;             /* ctrl endpoint */
-    int bulk_rcv_endpoint;              /* receive endpoint */
-
     struct sms1xxx_frontend *frontend;
 
     int (*pid_filter) (struct sms1xxx_softc*, u16, int); /* PID filter */
@@ -125,32 +121,32 @@ struct sms1xxx_device {
 
 struct sms1xxx_softc {
     device_t sc_dev;
-    usbd_device_handle udev;
-    usbd_interface_handle iface;
+    struct usb_device *udev;
+
     struct sms1xxx_device *device;
 
-    /* Output */
-    usbd_pipe_handle opipe;
-    usbd_xfer_handle oxfer;
+    /* Xfers */
+    struct usb_xfer *sc_xfer[SMS1XXX_N_TRANSFER];
+    struct mtx sc_mtx;
 
-    /* Input data stream/command results */
-    usbd_pipe_handle ipipe;
-    struct sms1xxx_sbuf {
-        struct sms1xxx_softc *sc;
-        usbd_xfer_handle xfer;
-        u_char *buf;
-    } sbuf[MAXXFERS];
-    u_int32_t sbufsize;
+    /* tx */
+    struct sms1xxx_data sc_tx_data[SMS1XXX_BULK_TX_BUFS];
+    sms1xxx_datahead sc_tx_inactive; /* free buffers */
+    sms1xxx_datahead sc_tx_pending;  /* buffers waiting for being xmitted */
+    sms1xxx_datahead sc_tx_active;   /* buffers currently being xmitted */
+
+    /* rx */
+    struct sms1xxx_data sc_rx_data;  /* XXX only one RX buffer, need more ? */
 
     /* State */
+    u8  sc_iface_index; /* current interface */
     int sc_dying;
     int usbinit;
-    int bulk_ctrl_busy;
     int usbrefs;
 
     /* Dialog synchronization helpers */
-#define FRONTEND_TIMEOUT    (3 * 1000)  /* timeout (msec) for frontend
-                                           operations (set PID...) */
+#define FRONTEND_TIMEOUT    2500 /* timeout (msec) for frontend
+                                    operations (set PID...) */
 #define DLG_INIT(status, value)         ((status) &= ~(value))
 #define DLG_COMPLETE(status, value)     ((status) |= (value))
 #define DLG_ISCOMPLETE(status, value)   ((status) & (value))
@@ -182,29 +178,29 @@ struct sms1xxx_softc {
 #define PIDFREE     0xFFFF /* filter available for use (initial state) */
     struct filter {
         struct cdev *dev;  /* asociated device */
-        u_char *buf;
-        u_int16_t pid;
-        u_int16_t woff;
-        u_int16_t roff;
-        u_int16_t wavail;
-        u_int16_t ravail;
-        u_int16_t wtodo;
-        u_int16_t rtodo;
+        u8 *buf;
+        u16 pid;
+        u16 woff;
+        u16 roff;
+        u16 wavail;
+        u16 ravail;
+        u16 wtodo;
+        u16 rtodo;
 #define SECTBUFSIZE         8192
-        u_int16_t size;
-        u_int16_t sectcnt;
+        u16 size;
+        u16 sectcnt;
 #define FILTER_TYPE_PES     0
 #define FILTER_TYPE_SECT    1
-        u_char type;
-        u_char mask;
-        u_char value;
-        u_char cc;
+        u8 type;
+        u8 mask;
+        u8 value;
+        u8 cc;
 #define FILTER_BUSY         0x01
 #define FILTER_STREAMING    0x02
 #define FILTER_SLEEP        0x04
 #define FILTER_POLL         0x08
 #define FILTER_OVERFLOW     0x10
-        u_char state;
+        u8 state;
         struct selinfo rsel;
     } filter[MAX_FILTERS];
     struct mtx filterlock;
@@ -213,19 +209,19 @@ struct sms1xxx_softc {
 #define DVRBUFSIZE          (10000 * PACKET_SIZE)
 #define THRESHOLD           (8 * PACKET_SIZE)
     struct {
-        u_char *buf;
-        u_int32_t roff;
-        u_int32_t woff;
-        u_int32_t ravail;
-        u_int32_t wavail;
-        u_int32_t threshold;
-        u_int32_t size;
-        u_int32_t nobufs;
+        u8 *buf;
+        u32 roff;
+        u32 woff;
+        u32 ravail;
+        u32 wavail;
+        u32 threshold;
+        u32 size;
+        u32 nobufs;
 #define DVR_OPEN    0x0001
 #define DVR_SLEEP   0x0002
 #define DVR_POLL    0x0004
 #define DVR_AWAKE   0x0008
-        u_int32_t state;
+        u32 state;
         struct mtx lock;
         struct cdev *dev;
         struct selinfo rsel;

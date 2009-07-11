@@ -1,4 +1,4 @@
-/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 7.0 and higher:
+/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
  *  Copyright (C) 2008 - Ganaël Laplanche, http://contribs.martymac.com
  * 
@@ -87,7 +87,7 @@ sms1xxx_pid_filter(struct sms1xxx_softc *sc, u16 pid, int onoff)
     sms1xxx_usb_getpidfilterlist(sc);
 #endif
 
-    return err;
+    return (err);
 }
 
 struct sms1xxx_device sms1xxx = {
@@ -104,9 +104,6 @@ struct sms1xxx_device sms1xxx = {
         "",                                 /* DEVICE_MODE_DAB_TDMB_DABIP */
         "SMS100x_Dvbt.inp"                  /* DEVICE_MODE_DVBT_BDA */
     },
-
-    .bulk_ctrl_endpoint = USB_SIANO_ENDP_CTRL,
-    .bulk_rcv_endpoint = USB_SIANO_ENDP_RCV,
 
     .frontend = &frontend,
     .pid_filter = sms1xxx_pid_filter,
@@ -130,34 +127,26 @@ SYSCTL_INT(_hw_usb_sms1xxx, OID_AUTO, debug, CTLFLAG_RW,
     "sms1xxx debug level");
 #endif
 
-struct sms1xxx_info {
-    struct usb_devno        devno;
-    struct sms1xxx_device   *device;
-    const char              *name;
+static const struct usb_device_id sms1xxx_devs[] = {
+    /* Siano SMS1000 adapter USB1.1 */
+    {USB_VPI(USB_VID_SIANO, USB_PID_SIANO_SMS1000_USB11, 0)},
+    /* Siano DBM adapter USB1.1 */
+    {USB_VPI(USB_VID_SIANO, USB_PID_SIANO_DMB_USB11, 0)},
+#if 0
+/* XXX Not tested */
+    /* Hauppauge Catamount */
+    {USB_VPI(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_CATAMOUNT, 0)},
+#endif
 };
 
-static const struct sms1xxx_info sms1xxx_devs[] = {
-    {{ USB_VID_SIANO, USB_PID_SIANO_SMS1000_USB11 }, &sms1xxx,
-        "Siano SMS1000 adapter USB1.1"},
-    {{ USB_VID_SIANO, USB_PID_SIANO_DMB_USB11 }, &sms1xxx,
-        "Siano DBM adapter USB1.1"},
-/* XXX Not tested
-    {{ USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_CATAMOUNT }, &sms1xxx,
-        "Hauppauge Catamount"},
-*/
-};
-
-#define sms1xxx_lookup(v, p) \
-    ((const struct sms1xxx_info *)usb_lookup(sms1xxx_devs, v, p))
-
-static device_probe_t sms1xxx_match;
+static device_probe_t sms1xxx_probe;
 static device_attach_t sms1xxx_attach;
 static device_detach_t sms1xxx_detach;
 
 devclass_t sms1xxx_devclass;
 
 static device_method_t sms1xxx_methods[] = {
-    DEVMETHOD(device_probe, sms1xxx_match),
+    DEVMETHOD(device_probe, sms1xxx_probe),
     DEVMETHOD(device_attach, sms1xxx_attach),
     DEVMETHOD(device_detach, sms1xxx_detach),
     {0,0}
@@ -172,44 +161,16 @@ static driver_t sms1xxx_driver = {
 MODULE_DEPEND(sms1xxx, usb, 1, 1, 1);
 
 static int
-sms1xxx_match(device_t self)
+sms1xxx_probe(device_t self)
 {
     struct usb_attach_arg *uaa = device_get_ivars(self);
-    const struct sms1xxx_info *info;
-    usb_interface_descriptor_t *id;
-    usb_config_descriptor_t *cd;
 
-    TRACE(TRACE_PROBE,"vendor=%x, product=%x release=%04x\n"
-          ,uaa->vendor, uaa->product, uaa->release);
+    TRACE(TRACE_PROBE,"\n");
 
-    info = sms1xxx_lookup(uaa->vendor, uaa->product);
-    if(info == NULL) {
-        return UMATCH_NONE;
-    }
+    if (uaa->usb_mode != USB_MODE_HOST)
+        return (ENXIO);
 
-    if(uaa->iface == NULL) {
-        return UMATCH_NONE;
-    }
-
-    id = usbd_get_interface_descriptor(uaa->iface);
-    if(id == NULL) {
-        ERR("failed to get interface descriptor\n");
-        return UMATCH_NONE;
-    }
-
-    cd = usbd_get_config_descriptor(uaa->device) ;
-    if(cd == NULL) {
-        ERR("failed to get config descriptor\n");
-        return UMATCH_NONE;
-    }
-
-    /* Skip interface 0 on cold devices */
-    if((cd->bNumInterface == 2) &&
-        (id->bInterfaceNumber != USB_SIANO_INTF_FWUPLD)) {
-        return UMATCH_NONE;
-    }
-
-    return  UMATCH_VENDOR_PRODUCT;
+    return (usbd_lookup_id_by_uaa(sms1xxx_devs, sizeof(sms1xxx_devs), uaa));
 }
 
 static int
@@ -217,24 +178,23 @@ sms1xxx_attach(device_t self)
 {
     struct sms1xxx_softc *sc = device_get_softc(self);
     struct usb_attach_arg *uaa = device_get_ivars(self);
-    char devinfo[1024];
-    const struct sms1xxx_info *info;
 
     TRACE(TRACE_PROBE,"vendor=%x, product=%x release=%04x\n",
-        uaa->vendor, uaa->product, uaa->release);
+        uaa->info.idVendor, uaa->info.idProduct, uaa->info.bcdDevice);
 
-    info = sms1xxx_lookup(uaa->vendor, uaa->product);
-    if(info == NULL)
-        return ENXIO;
+    device_set_usb_desc(self);
+    mtx_init(&sc->sc_mtx, "sms1xxx", NULL, MTX_DEF);
 
     sc->sc_dev = self;
     sc->udev = uaa->device;
-    sc->device = info->device;
 
-    usbd_devinfo(uaa->device, 0, devinfo);
-    device_set_desc_copy(self, devinfo);
-    device_printf(self, "%s\n", devinfo);
+    sc->sc_iface_index = uaa->info.bIfaceIndex;
+    TRACE(TRACE_PROBE,"attaching to interface=%d\n",
+        uaa->info.bIfaceIndex);
 
+    sc->device = &sms1xxx;
+    sc->sc_dying = 0;
+    sc->usbrefs = 0;
     sc->dlg_status = 0;
 
     if(!sc->device->fw_loading) {
@@ -242,24 +202,23 @@ sms1xxx_attach(device_t self)
         TRACE(TRACE_PROBE,"device not ready, mode=%d, requested_mode=%d\n",
             sc->device->mode,sc->device->requested_mode);
 
-        if(usbd_device2interface_handle(sc->udev,
-        USB_SIANO_INTF_FWUPLD, &sc->iface)) {
-            ERR("interface %d (firmware mgmt) not found\n",
-                USB_SIANO_INTF_FWUPLD);
-            return ENXIO;
-        }
-        if(sms1xxx_usb_init(sc)) {
+        /* Init / start xfers */
+        if(sms1xxx_usb_init(sc) || sms1xxx_usb_xfers_start(sc)) {
             ERR("could not setup USB communication\n");
-            return ENXIO;
+            /* Reset device status */
+            sc->sc_dying = 1;
+            sc->device->mode = DEVICE_MODE_NONE;
+            mtx_destroy(&sc->sc_mtx);
+            return (ENXIO);
         }
 
         /* Validate requested mode */
         if((sc->device->requested_mode < DEVICE_MODE_DVBT) ||
             (sc->device->requested_mode > DEVICE_MODE_DVBT_BDA) ||
             (!sc->device->firmware[sc->device->requested_mode][0])) {
-            ERR("invalid mode specified %d, using default mode %d\n",
+                ERR("invalid mode specified %d, using default mode %d\n",
                 sc->device->requested_mode,DEVICE_MODE_DEFAULT);
-            sc->device->requested_mode = DEVICE_MODE_DEFAULT;
+                sc->device->requested_mode = DEVICE_MODE_DEFAULT;
         }
 
         /* Load firmware */
@@ -268,9 +227,13 @@ sms1xxx_attach(device_t self)
         if(sms1xxx_firmware_load(sc, sc->device->requested_mode)) {
             ERR("failed to load firmware\n");
             /* Reset device status */
-            sc->device->mode = DEVICE_MODE_NONE;
             sc->device->fw_loading = FALSE;
-            return ENXIO;
+            sc->sc_dying = 1;
+            sc->device->mode = DEVICE_MODE_NONE;
+            sms1xxx_usb_xfers_stop(sc);
+            sms1xxx_usb_exit(sc);
+            mtx_destroy(&sc->sc_mtx);
+            return (ENXIO);
         }
         INFO("firmware loaded, device should re-attach now\n");
     }
@@ -284,52 +247,53 @@ sms1xxx_attach(device_t self)
         TRACE(TRACE_PROBE,"firmware loaded, mode=%d\n",
             sc->device->mode);
 
-        if(usbd_device2interface_handle(sc->udev,
-        USB_SIANO_INTF_ROM, &sc->iface)) {
-            ERR("interface %d (rom interface) not found\n", USB_SIANO_INTF_ROM);
-            return ENXIO;
-        }
-        if(sms1xxx_usb_init(sc)) {
+        /* Init / start xfers */
+        if(sms1xxx_usb_init(sc) || sms1xxx_usb_xfers_start(sc)) {
             ERR("could not setup USB communication\n");
-            return ENXIO;
+            sc->sc_dying = 1;
+            sc->device->mode = DEVICE_MODE_NONE;
+            mtx_destroy(&sc->sc_mtx);
+            return (ENXIO);
         }
-        sms1xxx_usb_xfers_start(sc);
 
         /* XXX Fully initialize the device as the official
            driver seems to do. May not be necessary */
         sms1xxx_usb_initdevice(sc, sc->device->mode);
         sms1xxx_usb_setfrequency(sc,
             sc->device->frontend->info.frequency_min,BANDWIDTH_7_MHZ);
-        /* End of hack */
 
         sms1xxx_demux_init(sc);
         sms1xxx_frontend_init(sc);
 
         INFO("device ready, mode=%d\n", sc->device->mode);
     }
-
-    usbd_add_drv_event(USB_EVENT_DRIVER_ATTACH,sc->udev,sc->sc_dev);
-    return 0;
+    return (0);
 }
 
 static int
 sms1xxx_detach(device_t self)
 {
     struct sms1xxx_softc *sc = device_get_softc(self);
+    int last_mode = sc->device->mode ;
+
     TRACE(TRACE_PROBE,"sc=%p\n",sc);
+
+    sc->sc_dying = 1;
 
     /* Reset device status */
     sc->device->mode = DEVICE_MODE_NONE;
 
-    sc->sc_dying = 1;
-
-    sms1xxx_frontend_exit(sc);
-    sms1xxx_demux_exit(sc);
+    if (last_mode != DEVICE_MODE_NONE) {
+        sms1xxx_frontend_exit(sc);
+        sms1xxx_demux_exit(sc);
+    }
+    sms1xxx_usb_xfers_stop(sc);
     sms1xxx_usb_exit(sc);
 
-    usbd_add_drv_event(USB_EVENT_DRIVER_DETACH,sc->udev,sc->sc_dev);
-    return 0;
+    mtx_destroy(&sc->sc_mtx);
+
+    return (0);
 }
 
-DRIVER_MODULE(sms1xxx,uhub, sms1xxx_driver,
-    sms1xxx_devclass, usbd_driver_load,0);
+DRIVER_MODULE(sms1xxx, uhub, sms1xxx_driver,
+    sms1xxx_devclass, NULL, 0);

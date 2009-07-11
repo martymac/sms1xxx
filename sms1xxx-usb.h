@@ -1,4 +1,4 @@
-/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 7.0 and higher:
+/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
  *  Copyright (C) 2008 - Ganaël Laplanche, http://contribs.martymac.com
  *
@@ -31,18 +31,16 @@
 #include "sms1xxx.h"
 
 int sms1xxx_usb_init(struct sms1xxx_softc *);
-void sms1xxx_usb_exit(struct sms1xxx_softc *);
-#ifdef DIAGNOSTIC
-int sms1xxx_usb_reinit(struct sms1xxx_softc *);
-#endif
+int sms1xxx_usb_exit(struct sms1xxx_softc *);
 
 int sms1xxx_usb_ref(struct sms1xxx_softc *);
 void sms1xxx_usb_deref(struct sms1xxx_softc *);
 
 int sms1xxx_usb_xfers_start(struct sms1xxx_softc *);
+int sms1xxx_usb_xfers_stop(struct sms1xxx_softc *);
 
-int sms1xxx_usb_write(struct sms1xxx_softc *, const u8 *, u_int32_t) ;
-int sms1xxx_usb_write_and_wait(struct sms1xxx_softc *, const u8 *, u_int32_t,
+int sms1xxx_usb_write(struct sms1xxx_softc *, const u8 *, u32) ;
+int sms1xxx_usb_write_and_wait(struct sms1xxx_softc *, const u8 *, u32,
     unsigned char, unsigned int);
 
 int sms1xxx_usb_setmode(struct sms1xxx_softc *, int) ;
@@ -50,8 +48,8 @@ int sms1xxx_usb_initdevice(struct sms1xxx_softc *, int) ;
 int sms1xxx_usb_getversion(struct sms1xxx_softc *) ;
 int sms1xxx_usb_getstatistics(struct sms1xxx_softc *) ;
 int sms1xxx_usb_getpidfilterlist(struct sms1xxx_softc *) ;
-int sms1xxx_usb_setfrequency(struct sms1xxx_softc *,u32,u32);
-int sms1xxx_usb_add_pid(struct sms1xxx_softc *,uint16_t);
-int sms1xxx_usb_remove_pid(struct sms1xxx_softc *,uint16_t);
+int sms1xxx_usb_setfrequency(struct sms1xxx_softc *, u32, u32);
+int sms1xxx_usb_add_pid(struct sms1xxx_softc *, u16);
+int sms1xxx_usb_remove_pid(struct sms1xxx_softc *, u16);
 
 #endif

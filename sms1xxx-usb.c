@@ -1,4 +1,4 @@
-/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 7.0 and higher:
+/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
  *  Copyright (C) 2008 - Ganaël Laplanche, http://contribs.martymac.com
  *
@@ -38,6 +38,35 @@
 #include "sms1xxx-usb.h"
 #include "sms1xxx-demux.h"
 
+static void sms1xxx_usb_tx_cb(struct usb_xfer *, usb_error_t);
+static void sms1xxx_usb_rx_cb(struct usb_xfer *, usb_error_t);
+
+static const struct usb_config sms1xxx_config[SMS1XXX_N_TRANSFER] = {
+       [SMS1XXX_BULK_TX] = {
+               .type = UE_BULK,
+               .endpoint = USB_SIANO_ENDP_CTRL,
+               .direction = UE_DIR_OUT,
+               .bufsize = SMS1XXX_BULK_TX_BUFS_SIZE,
+               .timeout = 250,
+               .callback = &sms1xxx_usb_tx_cb,
+               .flags = {
+                   .short_xfer_ok = 1,
+               },
+       },
+       [SMS1XXX_BULK_RX] = {
+               .type = UE_BULK,
+               .endpoint = USB_SIANO_ENDP_RCV,
+               .direction = UE_DIR_IN,
+               .bufsize = SMS1XXX_BULK_RX_BUFS_SIZE,
+               .timeout = FRONTEND_TIMEOUT + 500,
+               .callback = &sms1xxx_usb_rx_cb,
+               .flags = {
+                   .pipe_bof = 1,
+                   .short_xfer_ok = 1,
+               },
+       },
+};
+
 /****************************
  * Initialization functions *
  ****************************/
@@ -46,175 +75,44 @@
 int
 sms1xxx_usb_init(struct sms1xxx_softc *sc)
 {
-    int i;
-    TRACE(TRACE_USB,"init=%d\n",sc->usbinit);
+    TRACE(TRACE_USB,"sc=%p init=%d\n",sc,sc->usbinit);
 
-    if(sc->usbinit == -1) {
-        ERR("USB Initialisation in progress\n");
-        return EBUSY;
+    if(sc->usbinit < 0) {
+        ERR("USB (Un)Initialisation in progress\n");
+        return (EBUSY);
     }
     sc->usbinit = -1;
 
-    /* Init control */
-    if(sc->opipe == NULL) {
-        if(usbd_open_pipe(sc->iface,
-            sc->device->bulk_ctrl_endpoint,
-            0, &sc->opipe)) {
-            ERR("could not open ctrl out pipe\n");
-            sc->usbinit = 0;
-            return EIO;
-        }
-    }
-    if(sc->oxfer == NULL) {
-        if((sc->oxfer = usbd_alloc_xfer(sc->udev)) == NULL) {
-            ERR("could not allocate ctrl out xfer\n");
-            sc->usbinit = 0;
-            return EIO;
-        }
-    }
-
-    /* Input, only for warm devices */
-    if(sc->device->mode != DEVICE_MODE_NONE) {
-        /* DVR */
-        sc->dvr.threshold = THRESHOLD;
-        sc->dvr.size = DVRBUFSIZE;
-        if(sc->dvr.buf == NULL) {
-            sc->dvr.buf = malloc(sc->dvr.size, M_USBDEV, M_WAITOK);
-            if(sc->dvr.buf == NULL) {
-                ERR("could not allocate dvr buf\n");
-                sc->usbinit = 0;
-                return ENOMEM;
-            }
-            sc->dvr.roff = 0;
-            sc->dvr.woff = 0;
-            sc->dvr.ravail = 0;
-            sc->dvr.wavail = sc->dvr.size;
-        }
-
-        /* Pipe and xfers */
-        if(sc->ipipe == NULL) {
-            if(usbd_open_pipe(sc->iface,
-            sc->device->bulk_rcv_endpoint | UT_READ,
-            0, &sc->ipipe)) {
-                ERR("could not open data in pipe\n");
-                sc->usbinit = 0;
-                return EIO;
-            }
-        }
-
-        sc->sbufsize = SBUFSIZE;
-        for(i = 0; i < MAXXFERS; i++) {
-            usbd_xfer_handle xfer;
-            void *p;
-
-            if((xfer = usbd_alloc_xfer(sc->udev)) == NULL) {
-                ERR("could not allocate stream xfer %d\n",i+1);
-                return EIO;
-            }
-            if((p = usbd_alloc_buffer(xfer,sc->sbufsize)) == NULL){
-                usbd_free_xfer(xfer);
-                ERR("could not allocate stream buffer %d\n",i+1);
-                return ENOMEM;
-            }
-            sc->sbuf[i].xfer = xfer;
-            sc->sbuf[i].buf = p;
-            sc->sbuf[i].sc = sc;
-        }
+    /* Setup USB xfers */
+    if(usbd_transfer_setup(sc->udev, &sc->sc_iface_index, sc->sc_xfer,
+      sms1xxx_config, SMS1XXX_N_TRANSFER, sc, &sc->sc_mtx)) {
+        ERR("could not setup xfers\n");
+        sc->usbinit = 0;
+        return (EIO);
     }
 
     sc->usbinit = 1;
-    return 0;
+    return (0);
 }
 
 /* Un-initialize USB input/output pipes and xfers */
-void
+int
 sms1xxx_usb_exit(struct sms1xxx_softc *sc)
 {
-    int i;
     TRACE(TRACE_USB,"sc=%p init=%d\n",sc,sc->usbinit);
 
+    if(sc->usbinit < 0) {
+        ERR("USB (Un)Initialisation in progress\n");
+        return (EBUSY);
+    }
+    sc->usbinit = -1;
+
+    /* Unsetup USB xfers */
+    usbd_transfer_unsetup(sc->sc_xfer, SMS1XXX_N_TRANSFER);
+
     sc->usbinit = 0;
-
-    /* Cleanup control */
-    if(sc->opipe != NULL) {
-        usbd_abort_pipe(sc->opipe);
-        usbd_close_pipe(sc->opipe);
-        sc->opipe = NULL;
-    }
-    if(sc->oxfer != NULL) {
-        usbd_free_xfer(sc->oxfer);
-        sc->oxfer = NULL;
-    }
-
-    /* Cleanup stream */
-    if(sc->ipipe != NULL) {
-        usbd_abort_pipe(sc->ipipe);
-        usbd_close_pipe(sc->ipipe);
-        sc->ipipe = NULL;
-    }
-    for(i = 0; i < MAXXFERS; ++i) {
-        if(sc->sbuf[i].xfer != NULL) {
-            /* Implicit buffer free */
-            usbd_free_xfer(sc->sbuf[i].xfer);
-            sc->sbuf[i].xfer = NULL;
-        }
-    }
-
-    /* DVR */
-    sc->dvr.ravail = 0;
-    sc->dvr.wavail = 0;
-    if(sc->dvr.buf != NULL) {
-        free(sc->dvr.buf, M_USBDEV);
-        sc->dvr.buf = NULL;
-    }
+    return (0);
 }
-
-#ifdef DIAGNOSTIC
-int
-sms1xxx_usb_reinit(struct sms1xxx_softc *sc)
-{
-    int  i;
-    void *p;
-    usbd_xfer_handle xfer;
-    sc->dvr.ravail = 0;
-    sc->dvr.wavail = 0;
-
-    if(sc->dvr.buf != NULL) {
-        free(sc->dvr.buf, M_USBDEV);
-        sc->dvr.buf = NULL;
-    }
-    sc->dvr.buf = malloc(sc->dvr.size, M_USBDEV, M_NOWAIT);
-    if(sc->dvr.buf == NULL) {
-        ERR("failed to allocate dvr buffer\n");
-        return ENOMEM;
-    }
-    sc->dvr.roff = 0;
-    sc->dvr.woff = 0;
-    sc->dvr.ravail = 0;
-    sc->dvr.wavail = sc->dvr.size;
-
-    for(i = 0; i < MAXXFERS; ++i) {
-        if(sc->sbuf[i].xfer != NULL) {
-            /* Implicit buffer free */
-            usbd_free_xfer(sc->sbuf[i].xfer);
-            sc->sbuf[i].xfer = NULL;
-        }
-        if((xfer = usbd_alloc_xfer(sc->udev)) == NULL) {
-            ERR("could not allocate stream xfer: %d\n",i);
-            return EIO;
-        }
-        if((p = usbd_alloc_buffer(xfer,sc->sbufsize)) == NULL){
-            usbd_free_xfer(xfer);
-            ERR("could not allocate stream buffer: %d\n",i);
-            return ENOMEM;
-        }
-        sc->sbuf[i].xfer = xfer;
-        sc->sbuf[i].buf = p;
-        sc->sbuf[i].sc = sc;
-    }
-    return 0;
-}
-#endif
 
 /* Called on each open() of a demux device */
 int
@@ -222,7 +120,7 @@ sms1xxx_usb_ref(struct sms1xxx_softc *sc)
 {
     TRACE(TRACE_USB,"refcnt %d -> %d\n",sc->usbrefs,sc->usbrefs + 1);
     sc->usbrefs++;
-    return 0;
+    return (0);
 }
 
 /* Called on each close() of a demux device */
@@ -239,8 +137,8 @@ sms1xxx_usb_deref(struct sms1xxx_softc *sc)
 
 /* Analyze packets received from the device */
 static void
-sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u_char *packet,
-    u_int32_t bytes)
+sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet,
+    u32 bytes)
 {
     if (bytes > 0) {
         struct SmsMsgHdr_ST *phdr = (struct SmsMsgHdr_ST *)((u8 *) packet);
@@ -263,9 +161,9 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u_char *packet,
                     TRACE(TRACE_USB_FLOW,"handling MSG_SMS_DVBT_BDA_DATA\n");
                     /* Send data to demuxer using chunks of PACKET_SIZE bytes */
                     /* Number of bytes remaining */
-                    u_int32_t remaining = bytes - sizeof(struct SmsMsgHdr_ST);
+                    u32 remaining = bytes - sizeof(struct SmsMsgHdr_ST);
                     /* Number of chunks sent */
-                    u_int32_t sent = 0;
+                    u32 sent = 0;
                     while (remaining >= PACKET_SIZE) {
                         TRACE(TRACE_USB_FLOW,"sending packet %d to demuxer, "
                             "addr = %p\n",sent,
@@ -346,7 +244,7 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u_char *packet,
                     u32 *filterList = &(pdata->msgData[2]);
 
                     TRACE(TRACE_FILTERS, "found %d filters in stack\n", nfilt);
-                    for(int i=0;i < nfilt;++i) {
+                    for(int i = 0; i < nfilt; ++i) {
                         TRACE(TRACE_FILTERS,"filter %u(0x%x) set\n",
                             filterList[i], filterList[i]);
                     }
@@ -370,81 +268,198 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u_char *packet,
     }
 }
 
+static void
+sms1xxx_usb_tx_cb(struct usb_xfer *xfer, usb_error_t error)
+{
+    struct sms1xxx_softc *sc = usbd_xfer_softc(xfer);
+    struct usb_page_cache *pc;
+    struct sms1xxx_data *data;
+
+    mtx_assert(&sc->sc_mtx, MA_OWNED);
+
+    if(sc->sc_dying)
+        return;
+
+    switch(USB_GET_STATE(xfer)) {
+        case USB_ST_TRANSFERRED:
+            data = STAILQ_FIRST(&sc->sc_tx_active);
+            if (data == NULL)
+                goto tx_setup;
+            STAILQ_REMOVE_HEAD(&sc->sc_tx_active, next);
+            STAILQ_INSERT_TAIL(&sc->sc_tx_inactive, data, next);
+            /* FALLTHROUGH */
+        case USB_ST_SETUP:
+        tx_setup:
+            data = STAILQ_FIRST(&sc->sc_tx_pending);
+            if (data == NULL)
+                return;
+            STAILQ_REMOVE_HEAD(&sc->sc_tx_pending, next);
+            pc = usbd_xfer_get_frame(xfer, 0);
+            usbd_copy_in(pc, 0, data->buf, data->buflen); 
+            usbd_xfer_set_frame_len(xfer, 0, data->buflen);
+            STAILQ_INSERT_TAIL(&sc->sc_tx_active, data, next);
+            usbd_transfer_submit(xfer);
+            break;
+        default:
+            break;
+    }
+    return;
+}
+
 /* Main callback function, calls sms1xxx_usb_get_packets */
 static void
-sms1xxx_usb_read_cb(usbd_xfer_handle xfer,usbd_private_handle p,
-    usbd_status status)
+sms1xxx_usb_rx_cb(struct usb_xfer *xfer, usb_error_t error)
 {
-    struct sms1xxx_sbuf *sbuf = p;
-    struct sms1xxx_softc *sc = sbuf->sc;
-    u_int32_t cnt;
+    struct sms1xxx_softc *sc = usbd_xfer_softc(xfer);
+    struct usb_page_cache *pc;
+    int actlen;
 
-#ifdef DIAGNOSTIC
-    sc->stats.interrupts++;
-#endif
+    mtx_assert(&sc->sc_mtx, MA_OWNED);
 
-    usbd_get_xfer_status(xfer, NULL, NULL, &cnt, NULL);
-    TRACE(TRACE_USB_FLOW,"xfer: %p status: %d cnt: %d\n",xfer,status,cnt);
-
-    if(status == USBD_CANCELLED || sc->sc_dying) {
+    if(sc->sc_dying)
         return;
-    }
-    else if(status == USBD_STALLED) {
-        ERR("endpoint stalled, clearing...\n");
-        usbd_clear_endpoint_stall_async(sc->ipipe);
-    }
-    else if(status != USBD_NORMAL_COMPLETION) {
-        ERR("usb xfer returned with status: %s\n",usbd_errstr(status));
-    }
-    else if(cnt > sc->sbufsize) {
-        ERR("too many bytes: %d corrupt?\n",cnt);
-    }
-    else {
+
+    usbd_xfer_status(xfer, &actlen, NULL, NULL, NULL);
+
+    switch(USB_GET_STATE(xfer)) {
+    case USB_ST_TRANSFERRED:
+        pc = usbd_xfer_get_frame(xfer, 0);
+        usbd_copy_out(pc, 0, sc->sc_rx_data.buf, actlen);
+        sc->sc_rx_data.buflen = actlen;
 #ifdef DIAGNOSTIC
-        sc->stats.bytes += cnt;
+        sc->stats.interrupts++;
+        sc->stats.bytes += sc->sc_rx_data.buflen;
 #endif
-        sms1xxx_usb_get_packets(sc,sbuf->buf,cnt);
-    }
+        sms1xxx_usb_get_packets(sc, sc->sc_rx_data.buf, sc->sc_rx_data.buflen);
 
-    if(sc->dvr.state & DVR_AWAKE) {
-        sc->dvr.state &= ~DVR_AWAKE;
-        if(sc->dvr.state & DVR_SLEEP)
-            wakeup(&sc->dvr);
-        if(sc->dvr.state & DVR_POLL) {
-            sc->dvr.state &= ~DVR_POLL;
-            selwakeuppri(&sc->dvr.rsel, PZERO);
+        if(sc->dvr.state & DVR_AWAKE) {
+            sc->dvr.state &= ~DVR_AWAKE;
+            if(sc->dvr.state & DVR_SLEEP)
+                wakeup(&sc->dvr);
+            if(sc->dvr.state & DVR_POLL) {
+                sc->dvr.state &= ~DVR_POLL;
+                selwakeuppri(&sc->dvr.rsel, PZERO);
+            }
         }
+        /* FALLTHROUGH */
+    case USB_ST_SETUP:
+    rx_setup:
+        usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
+        usbd_transfer_submit(xfer);
+        break;
+    default:
+        if (error != USB_ERR_CANCELLED) {
+            /* try to clear stall first */
+            usbd_xfer_set_stall(xfer);
+            goto rx_setup;
+        }
+        break;
     }
-    usbd_setup_xfer(xfer, sc->ipipe, sbuf, sbuf->buf, sc->sbufsize,
-        USBD_NO_COPY | USBD_SHORT_XFER_OK,
-        USBD_NO_TIMEOUT, sms1xxx_usb_read_cb);
-
-    usbd_transfer(xfer);
+    return;
 }
 
 int
 sms1xxx_usb_xfers_start(struct sms1xxx_softc *sc)
 {
-    int i, err;
+    int i;
+
     TRACE(TRACE_USB,"sc=%p init=%d\n",sc,sc->usbinit);
 
     if(sc->usbinit <= 0) {
         ERR("usb not initialized\n");
-        return ENXIO;
+        return (ENXIO);
     }
 
-    for(i = 0; i < MAXXFERS; i++) {
-        TRACE(TRACE_USB,"starting up xfer %d\n",i);
-        usbd_setup_xfer(sc->sbuf[i].xfer, sc->ipipe, &sc->sbuf[i],
-            sc->sbuf[i].buf, sc->sbufsize, USBD_NO_COPY |
-            USBD_SHORT_XFER_OK, USBD_NO_TIMEOUT,
-            sms1xxx_usb_read_cb);
-
-        err = usbd_transfer(sc->sbuf[i].xfer);
-        if(err != USBD_NORMAL_COMPLETION && err != USBD_IN_PROGRESS)
-            ERR("could not transfer xfer %d, err =  %d\n",i,err);
+    /* Initialize TX STAILQs */
+    STAILQ_INIT(&sc->sc_tx_inactive);
+    STAILQ_INIT(&sc->sc_tx_pending);
+    STAILQ_INIT(&sc->sc_tx_active);
+    for (i = 0; i < SMS1XXX_BULK_TX_BUFS; i++) {
+        struct sms1xxx_data *data = &sc->sc_tx_data[i];
+        data->buf =
+            malloc(SMS1XXX_BULK_TX_BUFS_SIZE, M_USBDEV, M_NOWAIT | M_ZERO);
+        if (data->buf == NULL) {
+            TRACE(TRACE_USB,"could not allocate TX buffer!\n");
+            return (ENOMEM);
+        }
+        STAILQ_INSERT_TAIL(&sc->sc_tx_inactive, data, next);
     }
-    return 0;
+
+    /* Input, only for warm devices */
+    if(sc->device->mode != DEVICE_MODE_NONE) {
+        /* DVR stuff */
+        sc->dvr.threshold = THRESHOLD;
+        sc->dvr.size = DVRBUFSIZE;
+        if(sc->dvr.buf == NULL) {
+            sc->dvr.buf = malloc(sc->dvr.size, M_USBDEV, M_WAITOK);
+            if(sc->dvr.buf == NULL) {
+                ERR("could not allocate dvr buf\n");
+                return (ENOMEM);
+            }
+            sc->dvr.roff = 0;
+            sc->dvr.woff = 0;
+            sc->dvr.ravail = 0;
+            sc->dvr.wavail = sc->dvr.size;
+        }
+        /* Initialize RX buffer */
+        sc->sc_rx_data.buf = 
+            malloc(SMS1XXX_BULK_RX_BUFS_SIZE,
+                M_USBDEV, M_NOWAIT | M_ZERO);
+        if (sc->sc_rx_data.buf == NULL) {
+            TRACE(TRACE_USB,"could not allocate RX buffer!\n");
+            return (ENOMEM);
+        }
+        mtx_lock(&sc->sc_mtx);
+        usbd_transfer_start(sc->sc_xfer[SMS1XXX_BULK_RX]);
+        mtx_unlock(&sc->sc_mtx);
+    }
+
+    return (0);
+}
+
+int
+sms1xxx_usb_xfers_stop(struct sms1xxx_softc *sc)
+{
+    int i;
+
+    TRACE(TRACE_USB,"sc=%p init=%d\n",sc,sc->usbinit);
+
+    if(sc->usbinit <= 0) {
+        ERR("usb not initialized\n");
+        return (ENXIO);
+    }
+
+    /* Input, only for warm devices */
+    if(sc->device->mode != DEVICE_MODE_NONE) {
+        mtx_lock(&sc->sc_mtx);
+        usbd_transfer_stop(sc->sc_xfer[SMS1XXX_BULK_RX]);
+        mtx_unlock(&sc->sc_mtx);
+        usbd_transfer_drain(sc->sc_xfer[SMS1XXX_BULK_RX]);
+
+        /* Uninitialize RX BUF */
+        free(sc->sc_rx_data.buf, M_USBDEV);
+
+        /* DVR */
+        sc->dvr.ravail = 0;
+        sc->dvr.wavail = 0;
+        if(sc->dvr.buf != NULL) {
+            free(sc->dvr.buf, M_USBDEV);
+            sc->dvr.buf = NULL;
+        }
+    }
+
+    mtx_lock(&sc->sc_mtx);
+    usbd_transfer_stop(sc->sc_xfer[SMS1XXX_BULK_TX]);
+    mtx_unlock(&sc->sc_mtx);
+    usbd_transfer_drain(sc->sc_xfer[SMS1XXX_BULK_TX]);
+
+    /* Uninitialize TX STAILQs */
+    for (i = 0; i < SMS1XXX_BULK_TX_BUFS; i++) {
+        struct sms1xxx_data *data = &sc->sc_tx_data[i];
+        free(data->buf, M_USBDEV);
+    }
+
+    return (0);
 }
 
 /*******************
@@ -453,29 +468,44 @@ sms1xxx_usb_xfers_start(struct sms1xxx_softc *sc)
 
 /* Write data to the device */
 int
-sms1xxx_usb_write(struct sms1xxx_softc *sc, const u8 *wbuf, u_int32_t wlen)
+sms1xxx_usb_write(struct sms1xxx_softc *sc, const u8 *wbuf, u32 wlen)
 {
-    int err = 1;
+    int offset, bsize;
+    struct sms1xxx_data *data;
 
-    TRACE(TRACE_USB,"wlen=%d\n",wlen);
+    TRACE(TRACE_USB_FLOW,"wlen=%d\n",wlen);
     if(sc->usbinit <= 0) {
         ERR("usb not initialized\n");
-        return ENXIO;
+        return (ENXIO);
     }
-    if(sc->bulk_ctrl_busy)
-        return EBUSY;
-    sc->bulk_ctrl_busy = 1;
-    err = usbd_bulk_transfer(sc->oxfer,sc->opipe,0,2000,
-        __DECONST(u8*,wbuf),&wlen,"dvbwb");
 
-    if(err) {
-        ERR("output bulk transfer failed: %d\n",err);
-        if (err == USBD_INTERRUPTED)    err = EINTR;
-        else if (err == USBD_TIMEOUT)   err = ETIMEDOUT;
-        else                            err = EIO;
+    for (offset = 0; offset < wlen; offset += bsize) {
+        if ((wlen - offset) > SMS1XXX_BULK_TX_BUFS_SIZE)
+            bsize = SMS1XXX_BULK_TX_BUFS_SIZE;
+        else
+            bsize = wlen - offset;
+
+        mtx_lock(&sc->sc_mtx);
+        data = STAILQ_FIRST(&sc->sc_tx_inactive);
+        if (data == NULL) {
+            /* Wait a few ms for free buffers */
+            usb_pause_mtx(&sc->sc_mtx, USB_MS_TO_TICKS(5));
+            data = STAILQ_FIRST(&sc->sc_tx_inactive);
+            if (data == NULL) {
+                mtx_unlock(&sc->sc_mtx);
+                return (ENOBUFS);
+            }
+        }
+        STAILQ_REMOVE_HEAD(&sc->sc_tx_inactive, next);
+        memcpy(data->buf, wbuf + offset, bsize);
+        data->buflen = bsize;
+        STAILQ_INSERT_TAIL(&sc->sc_tx_pending, data, next);
+
+        usbd_transfer_start(sc->sc_xfer[SMS1XXX_BULK_TX]);
+        mtx_unlock(&sc->sc_mtx);
     }
-    sc->bulk_ctrl_busy = 0;
-    return err;
+    TRACE(TRACE_USB_FLOW,"sent %d bytes\n",offset);
+    return (0);
 }
 
 /* Wait for a response from the device
@@ -499,25 +529,25 @@ sms1xxx_usb_wait(struct sms1xxx_softc *sc,
 
         if(sc->sc_dying) {
             TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
-            return USBD_CANCELLED;
+            return (USB_ERR_CANCELLED);
         }
 
         if (DLG_ISCOMPLETE(sc->dlg_status, completion))
-            return 0;
+            return (0);
     }
     while (ms < delay_ms);
 
-    return USBD_TIMEOUT;
+    return (USB_ERR_TIMEOUT);
 }
 
 /* Write data to the device and wait for a response */
 int
 sms1xxx_usb_write_and_wait(struct sms1xxx_softc *sc, const u8 *wbuf,
-    u_int32_t wlen, unsigned char completion, unsigned int delay_ms)
+    u32 wlen, unsigned char completion, unsigned int delay_ms)
 {
-    int err;
+    int err = 0;
 
-    TRACE(TRACE_USB,"completion=%u(0x%x),delay_ms=%d\n",completion,
+    TRACE(TRACE_USB_FLOW,"completion=%u(0x%x),delay_ms=%d\n",completion,
         completion,delay_ms);
 
     DLG_INIT(sc->dlg_status, completion);
@@ -526,9 +556,9 @@ sms1xxx_usb_write_and_wait(struct sms1xxx_softc *sc, const u8 *wbuf,
         err = sms1xxx_usb_wait(sc, completion, delay_ms);
     }
 
-    TRACE(TRACE_USB,"done, err=%d\n",err);
+    TRACE(TRACE_USB_FLOW,"done, err=%d\n",err);
 
-    return err;
+    return (err);
 }
 
 /***************************
@@ -552,7 +582,7 @@ int sms1xxx_usb_setmode(struct sms1xxx_softc *sc, int mode)
         (mode > DEVICE_MODE_DVBT_BDA) ||
         (!sc->device->firmware[mode][0])) {
         ERR("invalid mode specified %d\n", mode);
-        return -EINVAL;
+        return (-EINVAL);
     }
 
     /* Set requested mode and ask device to re-attach */
@@ -561,7 +591,7 @@ int sms1xxx_usb_setmode(struct sms1xxx_softc *sc, int mode)
     sc->device->fw_loading = FALSE ;
     INFO("asking device to reset, target mode=%d\n",mode);
 
-    return sms1xxx_usb_write(sc, (u8*)&Msg, sizeof(Msg));
+    return (sms1xxx_usb_write(sc, (u8*)&Msg, sizeof(Msg)));
 }
 
 /* Initialize the device *after* firmware loading
@@ -578,7 +608,7 @@ int sms1xxx_usb_initdevice(struct sms1xxx_softc *sc, int mode)
         (!sc->device->firmware[mode][0]) ||
         (mode != sc->device->requested_mode)) {
         ERR("invalid mode specified %d\n", mode);
-        return -EINVAL;
+        return (-EINVAL);
     }
 
     InitMsg.xMsgHeader.msgType  = MSG_SMS_INIT_DEVICE_REQ;
@@ -588,7 +618,7 @@ int sms1xxx_usb_initdevice(struct sms1xxx_softc *sc, int mode)
     InitMsg.xMsgHeader.msgFlags = 0;
     InitMsg.msgData[0] = mode;
 
-    return sms1xxx_usb_write(sc, (u8*)&InitMsg, sizeof(InitMsg));
+    return (sms1xxx_usb_write(sc, (u8*)&InitMsg, sizeof(InitMsg)));
 }
 
 /* Get device version information
@@ -607,7 +637,7 @@ int sms1xxx_usb_getversion(struct sms1xxx_softc *sc)
     int rc;
 
     if (!buffer)
-        return -ENOMEM;
+        return (-ENOMEM);
 
     SMS_INIT_MSG(Msg, MSG_SMS_GET_VERSION_EX_REQ,
              sizeof(struct SmsMsgHdr_ST));
@@ -616,7 +646,7 @@ int sms1xxx_usb_getversion(struct sms1xxx_softc *sc)
 
     free(buffer,M_USBDEV);
 
-    return rc;
+    return (rc);
 }
 */
 
@@ -633,8 +663,8 @@ int sms1xxx_usb_getstatistics(struct sms1xxx_softc *sc)
         0
     };
 
-    return sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),
-        DLG_STAT_DONE, FRONTEND_TIMEOUT);
+    return (sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),
+        DLG_STAT_DONE, FRONTEND_TIMEOUT));
 }
 
 /* Get hardware PID filter list from device
@@ -652,12 +682,12 @@ int sms1xxx_usb_getpidfilterlist(struct sms1xxx_softc *sc)
         0
     };
 
-    return sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),
-        DLG_PID_DONE, FRONTEND_TIMEOUT);
+    return (sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),
+        DLG_PID_DONE, FRONTEND_TIMEOUT));
 }
 
 /* Tune device to a given frequency / bandwidth */
-int sms1xxx_usb_setfrequency(struct sms1xxx_softc *sc,u32 frequency,
+int sms1xxx_usb_setfrequency(struct sms1xxx_softc *sc, u32 frequency,
     fe_bandwidth_t bandwidth)
 {
     INFO("set frequency=%u, bandwidth=%u\n", frequency, bandwidth);
@@ -670,7 +700,7 @@ int sms1xxx_usb_setfrequency(struct sms1xxx_softc *sc,u32 frequency,
     if((frequency < sc->device->frontend->info.frequency_min) ||
        (frequency > sc->device->frontend->info.frequency_max)) {
         ERR("invalid frequency specified %d\n", frequency);
-        return -EINVAL;
+        return (-EINVAL);
     }
 
     Msg.Msg.msgType   = MSG_SMS_RF_TUNE_REQ;
@@ -683,17 +713,17 @@ int sms1xxx_usb_setfrequency(struct sms1xxx_softc *sc,u32 frequency,
         case BANDWIDTH_8_MHZ: Msg.Data[1] = BW_8_MHZ; break;
         case BANDWIDTH_7_MHZ: Msg.Data[1] = BW_7_MHZ; break;
         case BANDWIDTH_6_MHZ: Msg.Data[1] = BW_6_MHZ; break;
-        case BANDWIDTH_AUTO: return -EOPNOTSUPP;
-        default: return -EINVAL;
+        case BANDWIDTH_AUTO: return (-EOPNOTSUPP);
+        default: return (-EINVAL);
     }
     Msg.Data[2] = 12000000;
 
-    return sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),
-        DLG_TUNE_DONE, FRONTEND_TIMEOUT);
+    return (sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),
+        DLG_TUNE_DONE, FRONTEND_TIMEOUT));
 }
 
 /* Add a PID to hardware PID filter list */
-int sms1xxx_usb_add_pid(struct sms1xxx_softc *sc,uint16_t pid)
+int sms1xxx_usb_add_pid(struct sms1xxx_softc *sc, u16 pid)
 {
     TRACE(TRACE_USB,"add PID %u(0x%x)\n", pid, pid);
 
@@ -701,7 +731,7 @@ int sms1xxx_usb_add_pid(struct sms1xxx_softc *sc,uint16_t pid)
 
     if(pid > PIDMAX) {
         ERR("invalid pid specified %d\n", pid);
-        return -EINVAL;
+        return (-EINVAL);
     }
 
     PidMsg.xMsgHeader.msgType  = MSG_SMS_ADD_PID_FILTER_REQ;
@@ -711,12 +741,12 @@ int sms1xxx_usb_add_pid(struct sms1xxx_softc *sc,uint16_t pid)
     PidMsg.xMsgHeader.msgFlags = 0;
     PidMsg.msgData[0] = pid;
 
-    return sms1xxx_usb_write_and_wait(sc, (u8*)&PidMsg, sizeof(PidMsg),
-        DLG_PID_DONE, FRONTEND_TIMEOUT);
+    return (sms1xxx_usb_write_and_wait(sc, (u8*)&PidMsg, sizeof(PidMsg),
+        DLG_PID_DONE, FRONTEND_TIMEOUT));
 }
 
 /* Remove a PID from hardware PID filter list */
-int sms1xxx_usb_remove_pid(struct sms1xxx_softc *sc,uint16_t pid)
+int sms1xxx_usb_remove_pid(struct sms1xxx_softc *sc, u16 pid)
 {
     TRACE(TRACE_USB,"remove PID %u(0x%x)\n", pid, pid);
 
@@ -724,7 +754,7 @@ int sms1xxx_usb_remove_pid(struct sms1xxx_softc *sc,uint16_t pid)
 
     if(pid > PIDMAX) {
         ERR("invalid pid specified %d\n", pid);
-        return -EINVAL;
+        return (-EINVAL);
     }
 
     PidMsg.xMsgHeader.msgType  = MSG_SMS_REMOVE_PID_FILTER_REQ;
@@ -734,6 +764,6 @@ int sms1xxx_usb_remove_pid(struct sms1xxx_softc *sc,uint16_t pid)
     PidMsg.xMsgHeader.msgFlags = 0;
     PidMsg.msgData[0] = pid;
 
-    return sms1xxx_usb_write_and_wait(sc, (u8*)&PidMsg, sizeof(PidMsg),
-        DLG_PID_DONE, FRONTEND_TIMEOUT);
+    return (sms1xxx_usb_write_and_wait(sc, (u8*)&PidMsg, sizeof(PidMsg),
+        DLG_PID_DONE, FRONTEND_TIMEOUT));
 }

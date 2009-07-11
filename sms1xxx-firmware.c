@@ -1,4 +1,4 @@
-/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 7.0 and higher:
+/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
  *  Copyright (C) 2008 - Ganaël Laplanche, http://contribs.martymac.com
  *
@@ -51,13 +51,13 @@ sms1xxx_firmware_load(struct sms1xxx_softc *sc, int mode)
     TRACE(TRACE_FIRMWARE, "sc=%p, mode=%d\n", sc, mode);
 
     if (sc->sc_dying)
-        return ENXIO;
+        return (ENXIO);
 
     if ((mode < DEVICE_MODE_DVBT) ||
         (mode > DEVICE_MODE_DVBT_BDA) ||
         (!sc->device->firmware[mode][0])) {
         ERR("invalid mode specified %d\n", mode);
-        return -EINVAL;
+        return (-EINVAL);
     }
 
     fw = firmware_get(sc->device->firmware[mode]);
@@ -70,7 +70,7 @@ sms1xxx_firmware_load(struct sms1xxx_softc *sc, int mode)
             INFO("successfully uploaded firmware %s (%zd bytes)\n",
                 sc->device->firmware[mode],fw->datasize);
             firmware_put(fw, FIRMWARE_UNLOAD);
-            return 0;
+            return (0);
         }
         else {
             ERR("failed to upload firmware %s\n",
@@ -82,5 +82,5 @@ sms1xxx_firmware_load(struct sms1xxx_softc *sc, int mode)
         ERR("firmware %s not available (is module loaded ?)\n",
             sc->device->firmware[mode]);
     }
-    return -ENOMEM;
+    return (-ENOMEM);
 }

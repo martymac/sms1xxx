@@ -1,9 +1,19 @@
+*** New USB stack versions (FreeBSD 8.x) ***
+
+20090711:
+    Converted code to use the new USB2 stack (FreeBSD 8.x)
+    Removed set/getbufs IOCTLS
+    Code cleanup
+    (Driver functionalities sync'ed with Linux kernel 2.6.30.1 - no change)
+
+*** Older versions (FreeBSD 7.x) ***
+
 20090601:
-	Synced Linux headers with 2.6.29
+	Sync'ed Linux headers with Linux kernel 2.6.29
 	Fixed includes and added a fake linux/types.h
 20090331:
-    Merged fe_unc handling from 2.6.29
+    Merged fe_unc handling from Linux kernel 2.6.29
 20081203:
-    Apps updated
+    3rd-party apps updated
 20081122:
 	Initial version

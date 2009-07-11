@@ -1,4 +1,4 @@
-/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 7.0 and higher:
+/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
  *  Copyright (C) 2008 - Ganaël Laplanche, http://contribs.martymac.com
  *
@@ -71,6 +71,8 @@ sms1xxx_frontend_init(struct sms1xxx_softc *sc)
         UID_ROOT, GID_WHEEL, 0666,
         "dvb/adapter%d/frontend0",
         device_get_unit(sc->sc_dev));
+    if (sc->frontenddev != NULL)
+        sc->frontenddev->si_drv1 = sc;
     TRACE(TRACE_MODULE,"created frontend0 device, addr=%p\n",sc->frontenddev);
 }
 
@@ -90,7 +92,7 @@ sms1xxx_frontend_read_status(struct sms1xxx_softc *sc, fe_status_t *status)
     TRACE(TRACE_IOCTL,"\n");
     int err = sms1xxx_usb_getstatistics(sc);
     if(!err) *status=sc->fe_status;
-    return err;
+    return (err);
 }
 
 int
@@ -99,7 +101,7 @@ sms1xxx_frontend_read_ber(struct sms1xxx_softc *sc, u32 *ber)
     TRACE(TRACE_IOCTL,"\n");
     int err = sms1xxx_usb_getstatistics(sc);
     if(!err) *ber=sc->fe_ber;
-    return err;
+    return (err);
 }
 
 int
@@ -108,7 +110,7 @@ sms1xxx_frontend_read_ucblocks(struct sms1xxx_softc *sc, u32 *ucblocks)
     TRACE(TRACE_IOCTL,"\n");
     int err = sms1xxx_usb_getstatistics(sc);
     if(!err) *ucblocks=sc->fe_unc;
-    return err;
+    return (err);
 }
 
 int
@@ -117,7 +119,7 @@ sms1xxx_frontend_read_signal_strength(struct sms1xxx_softc *sc, u16 *strength)
     TRACE(TRACE_IOCTL,"\n");
     int err = sms1xxx_usb_getstatistics(sc);
     if(!err) *strength=sc->fe_signal_strength;
-    return err;
+    return (err);
 }
 
 int
@@ -126,7 +128,7 @@ sms1xxx_frontend_read_snr(struct sms1xxx_softc *sc, u16 *snr)
     TRACE(TRACE_IOCTL,"\n");
     int err = sms1xxx_usb_getstatistics(sc);
     if(!err) *snr=sc->fe_snr;
-    return err;
+    return (err);
 }
 
 int
@@ -134,11 +136,11 @@ sms1xxx_frontend_set_frontend(struct sms1xxx_softc *sc,
     struct dvb_frontend_parameters *fep)
 {
     TRACE(TRACE_IOCTL,"\n");
-    return sms1xxx_usb_setfrequency(
+    return (sms1xxx_usb_setfrequency(
         sc,
         fep->frequency + sc->device->freq_offset,
         fep->u.ofdm.bandwidth
-    );
+    ));
 }
 
 int
@@ -148,7 +150,7 @@ sms1xxx_frontend_get_frontend(struct sms1xxx_softc *sc,
     TRACE(TRACE_IOCTL,"\n");
     memcpy(fep, &sc->fe_params,
         sizeof(struct dvb_frontend_parameters));
-    return 0;
+    return (0);
 }
 
 int
@@ -159,7 +161,7 @@ sms1xxx_frontend_get_tune_settings(struct sms1xxx_softc *sc,
     tune->min_delay_ms = 400;
     tune->step_size = 2000;
     tune->max_drift = 0;
-    return 0;
+    return (0);
 }
 
 /******************************
@@ -169,41 +171,40 @@ sms1xxx_frontend_get_tune_settings(struct sms1xxx_softc *sc,
 static int
 sms1xxx_frontend_open(struct cdev *dev, int flag, int mode, struct thread *p)
 {
-    struct sms1xxx_softc *sc;
-    int err, unit = SMS1XXXUNIT(dev);
+    struct sms1xxx_softc *sc = dev->si_drv1;
+    int unit = device_get_unit(sc->sc_dev);
+    int err = 0;
     TRACE(TRACE_OPEN,"flag=%d mode=%d unit=%d\n",flag,mode,unit);
 
-    sc = devclass_get_softc(sms1xxx_devclass,unit);
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
-        return ENXIO;
+        return (ENXIO);
     }
     if(sc->feopen) {
         TRACE(TRACE_OPEN,"busy!\n");
-        return EBUSY;
+        return (EBUSY);
     }
     sc->feopen = 1;
     err =  sms1xxx_usb_ref(sc);
     if(err)
         sc->feopen = 0;
-    return err;
+    return (err);
 }
 
 static int
 sms1xxx_frontend_close(struct cdev *dev, int flag, int mode, struct thread *p)
 {
-    struct sms1xxx_softc *sc;
-    int unit = SMS1XXXUNIT(dev);
+    struct sms1xxx_softc *sc = dev->si_drv1;
+    int unit = device_get_unit(sc->sc_dev);
     TRACE(TRACE_OPEN,"flag=%d mode=%d unit=%d\n",flag,mode,unit);
 
-    sc = devclass_get_softc(sms1xxx_devclass, unit);
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_OPEN,"dying! sc=%p\n",sc);
-        return ENXIO;
+        return (ENXIO);
     }
     sc->feopen = 0;
     sms1xxx_usb_deref(sc);
-    return 0;
+    return (0);
 }
 
 static int
@@ -220,23 +221,21 @@ sms1xxx_frontend_poll(struct cdev *dev, int events, struct thread *p)
     if (events & (POLLPRI | POLLRDBAND))
         revents |= events & (POLLPRI | POLLRDBAND);
 
-    return revents;
+    return (revents);
 }
 
 static int
 sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
     struct thread *p)
 {
-    struct sms1xxx_softc *sc;
+    struct sms1xxx_softc *sc = dev->si_drv1;
     struct sms1xxx_frontend *fe;
-    int unit = SMS1XXXUNIT(dev);
     void *arg = addr;
     int err = 0;
 
-    sc = devclass_get_softc(sms1xxx_devclass,unit);
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_IOCTL,"dying! sc=%p\n",sc);
-        return ENXIO;
+        return (ENXIO);
     }
     fe = sc->device->frontend;
 
@@ -298,5 +297,5 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
             err = ENOTTY;
             break;
     }
-    return err;
+    return (err);
 }

@@ -2,7 +2,7 @@ About this driver :
 *******************
 
 This is a driver for the Terratec Cinergy Piranha DVB-T USB Dongle.
-It should work on FreeBSD >= 7.x.
+It should work on FreeBSD >= 8.0 (see older versions for FreeBSD 7.x).
 
 It is a port of the linux sms1xxx (siano) driver (drivers/media/dvb/siano
 in the Linux source tree), initially from the 2.6.27 Linux kernel.
@@ -91,7 +91,7 @@ You must have loaded the corresponding firmware in the previous step.
 Testing the driver :
 ********************
 
-First, plug it (or it won't work :p). You can have a look at /var/log/messages
+First, plug the device (or it won't work :p). You can have a look at /var/log/messages
 and see what happens.
 
 If your device is detected and the firmware successfully loaded, it
@@ -156,7 +156,8 @@ Other applications :
 You can use xine to watch TV directly (without having to use tzap) :
 xine 'dvb://MYCHANNEL'
 
-Kaffeine does not work (yet ?), unfortunately :/
+Kaffeine is also a great KDE application that works but does not
+seem to be very stable yet.
 
 Links :
 *******
@@ -182,5 +183,5 @@ http://mcentral.de/wiki/index.php5/DVBConfigFramework
 Author :
 ********
 
-This driver has been written (ported ? hacked ?) by Ganaël Laplanche
+This driver has been written by Ganaël Laplanche
 (http://contribs.martymac.com). Any comment is welcome !

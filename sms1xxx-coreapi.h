@@ -1,4 +1,4 @@
-/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 7.0 and higher:
+/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
  *  Copyright (C) 2008 - Ganaël Laplanche, http://contribs.martymac.com
  *
@@ -35,23 +35,23 @@
 #include <sys/types.h>
 
 /* Useful types */
-typedef u_int8_t	u8;
-typedef u_int16_t	u16;
-typedef u_int32_t	u32;
-typedef int32_t		s32;
-typedef boolean_t	bool;
+typedef u_int8_t    u8;
+typedef u_int16_t   u16;
+typedef u_int32_t   u32;
+typedef int32_t     s32;
+typedef boolean_t   bool;
 
 /* Vendor IDs */
-#define USB_VID_SIANO                           0x187f
+#define USB_VID_SIANO                      0x187f
 /* XXX Not tested
-#define USB_VID_HAUPPAUGE                       0x2040
+#define USB_VID_HAUPPAUGE                  0x2040
 */
 
 /* Product IDs */
-#define USB_PID_SIANO_SMS1000_USB11             0x0010
-#define USB_PID_SIANO_DMB_USB11                 0x0100
+#define USB_PID_SIANO_SMS1000_USB11        0x0010
+#define USB_PID_SIANO_DMB_USB11            0x0100
 /* XXX Not tested
-#define USB_PID_HAUPPAUGE_CATAMOUNT             0x1700
+#define USB_PID_HAUPPAUGE_CATAMOUNT        0x1700
 */
 
 /* Supported modes */
@@ -67,42 +67,57 @@ enum SMS_DEVICE_MODE {
 #define DEVICE_MODE_DEFAULT DEVICE_MODE_DVBT_BDA
 
 /* Interfaces */
-#define USB_SIANO_INTF_ROM                      0x00
-#define USB_SIANO_INTF_FWUPLD                   0x01
+#define USB_SIANO_INTF_ROM                 0x00
+#define USB_SIANO_INTF_FWUPLD              0x01
 
 /* Endpoints */
-#define USB_SIANO_ENDP_CTRL                     0x02
-#define USB_SIANO_ENDP_RCV                      0x81
+#define USB_SIANO_ENDP_CTRL                0x02
+#define USB_SIANO_ENDP_RCV                 0x81
 
-/* URBS */
-#define SBUFSIZE                                0x1000
-#define MAXXFERS                                10
+/* Xfers  */
+enum {
+    SMS1XXX_BULK_RX,
+    SMS1XXX_BULK_TX,
+    SMS1XXX_N_TRANSFER,
+};
+
+struct sms1xxx_data {
+    u8*                                     buf;
+    u32                                     buflen;
+    STAILQ_ENTRY(sms1xxx_data)              next;
+};
+typedef STAILQ_HEAD(, sms1xxx_data) sms1xxx_datahead;
+#define SMS1XXX_BULK_TX_BUFS                8
+#define SMS1XXX_BULK_TX_BUFS_SIZE           2048
+#define SMS1XXX_BULK_RX_BUFS_SIZE           4096 /* Mostly receives 3956 bytes
+                                                    (sizeof(struct SmsMsgHdr_ST)
+                                                    + 21 * PACKET_SIZE) */
 
 /* Bandwidths */
-#define BW_8_MHZ                                0
-#define BW_7_MHZ                                1
-#define BW_6_MHZ                                2
+#define BW_8_MHZ                            0
+#define BW_7_MHZ                            1
+#define BW_6_MHZ                            2
 
 /* Message handling */
-#define HIF_TASK                                11
-#define DVBT_BDA_CONTROL_MSG_ID                 201
+#define HIF_TASK                            11
+#define DVBT_BDA_CONTROL_MSG_ID             201
 
-#define MSG_SMS_RF_TUNE_REQ                     561
-#define MSG_SMS_RF_TUNE_RES                     562
-#define MSG_SMS_INIT_DEVICE_REQ                 578
-#define MSG_SMS_INIT_DEVICE_RES                 579
-#define MSG_SMS_ADD_PID_FILTER_REQ              601
-#define MSG_SMS_ADD_PID_FILTER_RES              602
-#define MSG_SMS_REMOVE_PID_FILTER_REQ           603
-#define MSG_SMS_REMOVE_PID_FILTER_RES           604
-#define MSG_SMS_GET_PID_FILTER_LIST_REQ         608
-#define MSG_SMS_GET_PID_FILTER_LIST_RES         609
-#define MSG_SMS_GET_STATISTICS_REQ              615
-#define MSG_SMS_GET_STATISTICS_RES              616
-#define MSG_SMS_GET_VERSION_EX_REQ              668
-#define MSG_SMS_GET_VERSION_EX_RES              669
-#define MSG_SMS_DVBT_BDA_DATA                   693
-#define MSG_SW_RELOAD_REQ                       697
+#define MSG_SMS_RF_TUNE_REQ                 561
+#define MSG_SMS_RF_TUNE_RES                 562
+#define MSG_SMS_INIT_DEVICE_REQ             578
+#define MSG_SMS_INIT_DEVICE_RES             579
+#define MSG_SMS_ADD_PID_FILTER_REQ          601
+#define MSG_SMS_ADD_PID_FILTER_RES          602
+#define MSG_SMS_REMOVE_PID_FILTER_REQ       603
+#define MSG_SMS_REMOVE_PID_FILTER_RES       604
+#define MSG_SMS_GET_PID_FILTER_LIST_REQ     608
+#define MSG_SMS_GET_PID_FILTER_LIST_RES     609
+#define MSG_SMS_GET_STATISTICS_REQ          615
+#define MSG_SMS_GET_STATISTICS_RES          616
+#define MSG_SMS_GET_VERSION_EX_REQ          668
+#define MSG_SMS_GET_VERSION_EX_RES          669
+#define MSG_SMS_DVBT_BDA_DATA               693
+#define MSG_SW_RELOAD_REQ                   697
 
 #define SMS_INIT_MSG_EX(ptr, type, src, dst, len) do { \
     (ptr)->msgType = type; (ptr)->msgSrcId = src; (ptr)->msgDstId = dst; \
@@ -111,7 +126,7 @@ enum SMS_DEVICE_MODE {
 #define SMS_INIT_MSG(ptr, type, len) \
     SMS_INIT_MSG_EX(ptr, type, 0, HIF_TASK, len)
 
-#define SMS_DMA_ALIGNMENT                       16
+#define SMS_DMA_ALIGNMENT                   16
 #define SMS_ALIGN_ADDRESS(addr) \
     ((((uintptr_t)(addr)) + (SMS_DMA_ALIGNMENT-1)) & ~(SMS_DMA_ALIGNMENT-1))
 
@@ -148,9 +163,9 @@ struct SMSHOSTLIB_STATISTICS_ST {
                              * valid only for DVB-T/H */
     u32 MFER;               /* DVB-H frame error rate in percentage,
                              * 0xFFFFFFFF indicate N/A, valid only for DVB-H */
-    s32  RSSI; /* dBm */
-    s32  InBandPwr;         /* In band power in dBM */
-    s32  CarrierOffset;     /* Carrier Offset in bin/1024 */
+    s32 RSSI;               /* dBm */
+    s32 InBandPwr;          /* In band power in dBM */
+    s32 CarrierOffset;      /* Carrier Offset in bin/1024 */
 
     /* Transmission parameters, valid only for DVB-T/H */
     u32 Frequency;          /* Frequency in Hz */
@@ -213,27 +228,27 @@ struct SmsMsgStatisticsInfo_ST {
 struct SmsVersionRes_ST {
     struct SmsMsgHdr_ST xMsgHeader;
 
-    u16     ChipModel;          /* e.g. 0x1102 for SMS-1102 "Nova" */
-    u8      Step;               /* 0 - Step A */
-    u8      MetalFix;           /* 0 - Metal 0 */
+    u16 ChipModel;          /* e.g. 0x1102 for SMS-1102 "Nova" */
+    u8  Step;               /* 0 - Step A */
+    u8  MetalFix;           /* 0 - Metal 0 */
 
-    u8      FirmwareId;         /* 0xFF ï¿½ ROM, otherwise the
-                                 * value indicated by
-                                 * SMSHOSTLIB_DEVICE_MODES_E */
-    u8      SupportedProtocols; /* Bitwise OR combination of
-                                 * supported protocols */
+    u8  FirmwareId;         /* 0xFF ï¿½ ROM, otherwise the
+                             * value indicated by
+                             * SMSHOSTLIB_DEVICE_MODES_E */
+    u8  SupportedProtocols; /* Bitwise OR combination of
+                             * supported protocols */
 
-    u8      VersionMajor;
-    u8      VersionMinor;
-    u8      VersionPatch;
-    u8      VersionFieldPatch;
+    u8  VersionMajor;
+    u8  VersionMinor;
+    u8  VersionPatch;
+    u8  VersionFieldPatch;
 
-    u8      RomVersionMajor;
-    u8      RomVersionMinor;
-    u8      RomVersionPatch;
-    u8      RomVersionFieldPatch;
+    u8  RomVersionMajor;
+    u8  RomVersionMinor;
+    u8  RomVersionPatch;
+    u8  RomVersionFieldPatch;
 
-    u8      TextLabel[34];
+    u8  TextLabel[34];
 };
 
 #endif

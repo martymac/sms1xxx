@@ -1,4 +1,4 @@
-/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 7.0 and higher:
+/*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
  *  Copyright (C) 2008 - Ganaël Laplanche, http://contribs.martymac.com
  *
@@ -35,25 +35,17 @@
 #ifdef DIAGNOSTIC
 
 struct sms1xxx_stats {
-    u_int32_t min_wavail;
-    u_int32_t max_wavail;
-    u_int32_t min_ravail;
-    u_int32_t max_ravail;
-    u_int32_t threshold;
-    u_int32_t interrupts;
-    u_int32_t bytes;
-    u_int32_t packetsmatched;
-};
-
-struct sms1xxx_bufs {
-    u_int32_t dvrsize;
-    u_int32_t sbufsize;
-    u_int32_t threshold;
+    u32 min_wavail;
+    u32 max_wavail;
+    u32 min_ravail;
+    u32 max_ravail;
+    u32 threshold;
+    u32 interrupts;
+    u32 bytes;
+    u32 packetsmatched;
 };
 
 #define SMS1XXX_GET_STATS   _IOR('o',81,struct sms1xxx_stats)
-#define SMS1XXX_GETBUFS     _IOR('o',82,struct sms1xxx_bufs)
-#define SMS1XXX_SETBUFS     _IOW('o',83,struct sms1xxx_bufs)
 
 #endif
 
