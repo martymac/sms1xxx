@@ -1,5 +1,8 @@
 *** New USB stack versions (FreeBSD 8.x) ***
 
+20090712:
+    Use internal xfer's frame buffer instead of copying data during RX cb
+
 20090711:
     Converted code to use the new USB2 stack (FreeBSD 8.x)
     Removed set/getbufs IOCTLS

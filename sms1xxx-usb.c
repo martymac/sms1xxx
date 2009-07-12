@@ -311,21 +311,15 @@ static void
 sms1xxx_usb_rx_cb(struct usb_xfer *xfer, usb_error_t error)
 {
     struct sms1xxx_softc *sc = usbd_xfer_softc(xfer);
-    struct usb_page_cache *pc;
-    int actlen;
 
     mtx_assert(&sc->sc_mtx, MA_OWNED);
 
     if(sc->sc_dying)
         return;
 
-    usbd_xfer_status(xfer, &actlen, NULL, NULL, NULL);
-
     switch(USB_GET_STATE(xfer)) {
     case USB_ST_TRANSFERRED:
-        pc = usbd_xfer_get_frame(xfer, 0);
-        usbd_copy_out(pc, 0, sc->sc_rx_data.buf, actlen);
-        sc->sc_rx_data.buflen = actlen;
+        usbd_xfer_frame_data(xfer, 0, (void*)&sc->sc_rx_data.buf, &sc->sc_rx_data.buflen);
 #ifdef DIAGNOSTIC
         sc->stats.interrupts++;
         sc->stats.bytes += sc->sc_rx_data.buflen;
@@ -401,14 +395,6 @@ sms1xxx_usb_xfers_start(struct sms1xxx_softc *sc)
             sc->dvr.ravail = 0;
             sc->dvr.wavail = sc->dvr.size;
         }
-        /* Initialize RX buffer */
-        sc->sc_rx_data.buf = 
-            malloc(SMS1XXX_BULK_RX_BUFS_SIZE,
-                M_USBDEV, M_NOWAIT | M_ZERO);
-        if (sc->sc_rx_data.buf == NULL) {
-            TRACE(TRACE_USB,"could not allocate RX buffer!\n");
-            return (ENOMEM);
-        }
         mtx_lock(&sc->sc_mtx);
         usbd_transfer_start(sc->sc_xfer[SMS1XXX_BULK_RX]);
         mtx_unlock(&sc->sc_mtx);
@@ -435,9 +421,6 @@ sms1xxx_usb_xfers_stop(struct sms1xxx_softc *sc)
         usbd_transfer_stop(sc->sc_xfer[SMS1XXX_BULK_RX]);
         mtx_unlock(&sc->sc_mtx);
         usbd_transfer_drain(sc->sc_xfer[SMS1XXX_BULK_RX]);
-
-        /* Uninitialize RX BUF */
-        free(sc->sc_rx_data.buf, M_USBDEV);
 
         /* DVR */
         sc->dvr.ravail = 0;

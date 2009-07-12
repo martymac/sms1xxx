@@ -35,7 +35,7 @@
 #include <sys/module.h>
 #include <sys/bus.h>
 
-/* usb(4) stuff */
+/* usbdi(9) stuff */
 #include <dev/usb/usb.h>
 #include <dev/usb/usbdi.h>
 #include <dev/usb/usbdi_util.h>
@@ -136,7 +136,8 @@ struct sms1xxx_softc {
     sms1xxx_datahead sc_tx_active;   /* buffers currently being xmitted */
 
     /* rx */
-    struct sms1xxx_data sc_rx_data;  /* XXX only one RX buffer, need more ? */
+    struct sms1xxx_data sc_rx_data;  /* no data copy, will use internal
+                                        xfer's frame buffer */
 
     /* State */
     u8  sc_iface_index; /* current interface */
