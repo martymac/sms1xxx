@@ -37,9 +37,31 @@
 #include "sms1xxx.h"
 #include "sms1xxx-usb.h"
 #include "sms1xxx-demux.h"
+#include "sms1xxx-firmware.h"
 
 static void sms1xxx_usb_tx_cb(struct usb_xfer *, usb_error_t);
 static void sms1xxx_usb_rx_cb(struct usb_xfer *, usb_error_t);
+
+#ifdef SMS1XXX_DEBUG
+static void
+sms1xxx_dump_data(const u8 *buf, u32 len, char prefix)
+{
+    const char *sep = "";
+    u32 i;
+
+    for (i = 0; i < len; i++) {
+        if ((i % 16) == 0) {
+            printf("%s%c ", sep, prefix);
+            sep = "\n";
+        }
+        else if ((i % 4) == 0)
+            printf(" ");
+        printf("%02x", buf[i]);
+    }
+    printf("\n");
+    return;
+}
+#endif
 
 static const struct usb_config sms1xxx_config[SMS1XXX_N_TRANSFER] = {
        [SMS1XXX_BULK_TX] = {
@@ -49,9 +71,6 @@ static const struct usb_config sms1xxx_config[SMS1XXX_N_TRANSFER] = {
                .bufsize = SMS1XXX_BULK_TX_BUFS_SIZE,
                .timeout = 250,
                .callback = &sms1xxx_usb_tx_cb,
-               .flags = {
-                   .short_xfer_ok = 1,
-               },
        },
        [SMS1XXX_BULK_RX] = {
                .type = UE_BULK,
@@ -75,7 +94,7 @@ static const struct usb_config sms1xxx_config[SMS1XXX_N_TRANSFER] = {
 int
 sms1xxx_usb_init(struct sms1xxx_softc *sc)
 {
-    TRACE(TRACE_USB,"sc=%p init=%d\n",sc,sc->usbinit);
+    TRACE(TRACE_USB, "sc=%p init=%d\n", sc, sc->usbinit);
 
     if(sc->usbinit < 0) {
         ERR("USB (Un)Initialisation in progress\n");
@@ -137,134 +156,189 @@ sms1xxx_usb_deref(struct sms1xxx_softc *sc)
 
 /* Analyze packets received from the device */
 static void
-sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet,
-    u32 bytes)
+sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
 {
-    if (bytes > 0) {
-        struct SmsMsgHdr_ST *phdr = (struct SmsMsgHdr_ST *)((u8 *) packet);
+    u32 offset = 0;
 
-        TRACE(TRACE_USB_FLOW,"got %d bytes "
-            "(msgLength=%d,msgType=%d,msgFlags=%d)\n",
-            bytes,phdr->msgLength,phdr->msgType,phdr->msgFlags);
+    if (bytes == 0) {
+        ERR("null message\n");
+        return;
+    }
 
-        if (bytes < phdr->msgLength) {
-            ERR("invalid message : msgLength=%d, received %d",
-                phdr->msgLength,bytes);
+    struct SmsMsgHdr_ST *phdr = (struct SmsMsgHdr_ST *)packet;
+
+    TRACE(TRACE_USB_FLOW,"got %d bytes "
+        "(msgLength=%d, msgType=%d, msgFlags=%d)\n",
+        bytes, phdr->msgLength, phdr->msgType, phdr->msgFlags);
+
+    if (bytes < phdr->msgLength) {
+        ERR("invalid message : msgLength=%d, received only %d bytes\n",
+            phdr->msgLength, bytes);
+        return;
+    }
+
+    if ((phdr->msgFlags & MSG_HDR_FLAG_SPLIT_MSG) &&
+        (bytes > phdr->msgLength)) {
+        /* Compute start offset */
+        offset = bytes - phdr->msgLength;
+        if(offset < sizeof(struct SmsMsgHdr_ST)) {
+            ERR("invalid message : offset too small\n");
             return;
         }
+        /* Copy header to its new location */
+        memcpy((u8 *)phdr + offset, phdr, sizeof(struct SmsMsgHdr_ST));
 
-        bytes = phdr->msgLength;
+        TRACE(TRACE_USB_FLOW, "split message detected, offset=%d, "
+            "header=%p, new=%p\n", offset, phdr, (u8 *)phdr + offset);
 
-        switch (phdr->msgType) {
-            case MSG_SMS_DVBT_BDA_DATA:
-                {
-                    TRACE(TRACE_USB_FLOW,"handling MSG_SMS_DVBT_BDA_DATA\n");
-                    /* Send data to demuxer using chunks of PACKET_SIZE bytes */
-                    /* Number of bytes remaining */
-                    u32 remaining = bytes - sizeof(struct SmsMsgHdr_ST);
-                    /* Number of chunks sent */
-                    u32 sent = 0;
-                    while (remaining >= PACKET_SIZE) {
-                        TRACE(TRACE_USB_FLOW,"sending packet %d to demuxer, "
-                            "addr = %p\n",sent,
-                            ((u8*)(phdr+1))+(sent*PACKET_SIZE));
-                        sms1xxx_demux_put_packet(sc,
-                            ((u8*)(phdr+1))+(sent*PACKET_SIZE));
-                        sent++;
-                        remaining -= PACKET_SIZE;
-                    }
-                    TRACE(TRACE_USB_FLOW,"sent %d packets to demuxer, "
-                        "%d bytes remaining\n",sent,remaining);
-                    if (remaining > 0) {
-                        WARN("junk data received, %d bytes skipped\n",
-                            remaining);
-                    }
-                    break;
+        /* Move pointer to its new location */
+        phdr = (struct SmsMsgHdr_ST *)((u8 *)phdr + offset);
+    }
+    bytes = phdr->msgLength;
+
+    switch (phdr->msgType) {
+        case MSG_SMS_DVBT_BDA_DATA:
+            {
+                TRACE(TRACE_USB_FLOW,"handling MSG_SMS_DVBT_BDA_DATA\n");
+                /* Send data to demuxer using chunks of PACKET_SIZE bytes */
+                /* Number of bytes remaining */
+                u32 remaining = bytes - sizeof(struct SmsMsgHdr_ST);
+                /* Number of chunks sent */
+                u32 sent = 0;
+                while (remaining >= PACKET_SIZE) {
+                    TRACE(TRACE_USB_FLOW,"sending packet %d to demuxer, "
+                        "addr = %p\n",sent,
+                        ((u8*)(phdr+1))+(sent*PACKET_SIZE));
+                    sms1xxx_demux_put_packet(sc,
+                        ((u8*)(phdr+1))+(sent*PACKET_SIZE));
+                    sent++;
+                    remaining -= PACKET_SIZE;
                 }
-            case MSG_SMS_RF_TUNE_RES:
-                TRACE(TRACE_USB_FLOW,"handling MSG_SMS_RF_TUNE_RES\n");
-                DLG_COMPLETE(sc->dlg_status, DLG_TUNE_DONE);
+                TRACE(TRACE_USB_FLOW,"sent %d packets to demuxer, "
+                    "%d bytes remaining\n",sent,remaining);
+                if (remaining > 0) {
+                    WARN("junk data received, %d bytes skipped\n",
+                        remaining);
+                }
                 break;
-            case MSG_SMS_GET_STATISTICS_RES:
-                TRACE(TRACE_USB_FLOW,"handling MSG_SMS_GET_STATISTICS_RES\n");
-                struct SmsMsgStatisticsInfo_ST *p =
-                    (struct SmsMsgStatisticsInfo_ST *)(phdr + 1);
+            }
+        case MSG_SMS_RF_TUNE_RES:
+            TRACE(TRACE_USB_FLOW,"handling MSG_SMS_RF_TUNE_RES\n");
+            DLG_COMPLETE(sc->dlg_status, DLG_TUNE_DONE);
+            break;
+        case MSG_SMS_GET_STATISTICS_RES:
+            TRACE(TRACE_USB_FLOW,"handling MSG_SMS_GET_STATISTICS_RES\n");
+            struct SmsMsgStatisticsInfo_ST *p =
+                (struct SmsMsgStatisticsInfo_ST *)(phdr + 1);
 
-                if (p->Stat.IsDemodLocked) {
-                    sc->fe_status = FE_HAS_SIGNAL |
-                                    FE_HAS_CARRIER |
-                                    FE_HAS_VITERBI |
-                                    FE_HAS_SYNC |
-                                    FE_HAS_LOCK;
+            if (p->Stat.IsDemodLocked) {
+                sc->fe_status = FE_HAS_SIGNAL |
+                                FE_HAS_CARRIER |
+                                FE_HAS_VITERBI |
+                                FE_HAS_SYNC |
+                                FE_HAS_LOCK;
 
-                    sc->fe_snr = p->Stat.SNR;
-                    sc->fe_ber = p->Stat.BER;
-                    sc->fe_unc = p->Stat.BERErrorCount;
+                sc->fe_snr = p->Stat.SNR;
+                sc->fe_ber = p->Stat.BER;
+                sc->fe_unc = p->Stat.BERErrorCount;
 
-                    if (p->Stat.InBandPwr < -95)
-                        sc->fe_signal_strength = 0;
-                    else if (p->Stat.InBandPwr > -29)
-                        sc->fe_signal_strength = 100;
-                    else
-                        sc->fe_signal_strength =
-                            (p->Stat.InBandPwr + 95) * 3 / 2;
-                }
-                else {
-                    sc->fe_status = 0;
-                    sc->fe_snr =
-                    sc->fe_ber =
-                    sc->fe_unc =
+                if (p->Stat.InBandPwr < -95)
                     sc->fe_signal_strength = 0;
-                }
-                DLG_COMPLETE(sc->dlg_status, DLG_STAT_DONE);
-                break;
-            case MSG_SMS_GET_VERSION_EX_RES:
-                {
-/*  XXX No response : alignment pb ? */
-/*
+                else if (p->Stat.InBandPwr > -29)
+                    sc->fe_signal_strength = 100;
+                else
+                    sc->fe_signal_strength =
+                        (p->Stat.InBandPwr + 95) * 3 / 2;
+            }
+            else {
+                sc->fe_status = 0;
+                sc->fe_snr =
+                sc->fe_ber =
+                sc->fe_unc =
+                sc->fe_signal_strength = 0;
+            }
+            DLG_COMPLETE(sc->dlg_status, DLG_STAT_DONE);
+            break;
+        case MSG_SMS_GET_VERSION_EX_RES:
+            {
+#ifdef SMS1XXX_DEBUG
+                if(sms1xxxdbg & TRACE_USB_FLOW) {
                     struct SmsVersionRes_ST *ver =
                         (struct SmsVersionRes_ST *) phdr;
-                    TRACE(TRACE_USB_FLOW,"handling MSG_SMS_GET_VERSION_EX_RES "
-                          "firmw=%d, protos=0x%x, ver=%d.%d\n",
-                          ver->FirmwareId, ver->SupportedProtocols,
-                          ver->RomVersionMajor, ver->RomVersionMinor);
-*/
-                    break;
-                }
-            case MSG_SMS_GET_PID_FILTER_LIST_REQ:
-                /* 'REQ' instead of 'RES' : not a typo ! */
-                {
                     TRACE(TRACE_USB_FLOW,
-                        "handling MSG_SMS_GET_PID_FILTER_LIST_REQ\n");
-
-#ifdef USB_DEBUG
-                    struct SmsMsgData_ST *pdata =
-                        (struct SmsMsgData_ST *)((u8 *) packet);
-                    u32 nfilt = pdata->msgData[1];
-                    u32 *filterList = &(pdata->msgData[2]);
-
-                    TRACE(TRACE_FILTERS, "found %d filters in stack\n", nfilt);
-                    for(int i = 0; i < nfilt; ++i) {
-                        TRACE(TRACE_FILTERS,"filter %u(0x%x) set\n",
-                            filterList[i], filterList[i]);
-                    }
-#endif
-                    DLG_COMPLETE(sc->dlg_status, DLG_PID_DONE);
-                    break;
+                        "handling MSG_SMS_GET_VERSION_EX_RES\n");
+                    TRACE(TRACE_USB_FLOW,
+                        "dumping version information :\n");
+                
+                    char label[MSG_VER_LABEL_SIZE + 1];
+                    strncpy(label, ver->TextLabel, sizeof(label));
+                    printf("+ label:        %s\n", label);
+                    printf("+ chipset:      0x%x\n", ver->ChipModel);
+                    printf("+ firmware id:  %d\n", ver->FirmwareId);
+                    printf("+ supp. protos: 0x%x\n", ver->SupportedProtocols);
+                    printf("+ version:      %d.%d\n", ver->VersionMajor,
+                        ver->VersionMinor);
+                    printf("+ romversion:   %d.%d\n", ver->RomVersionMajor,
+                        ver->RomVersionMinor);
                 }
-            case MSG_SMS_ADD_PID_FILTER_RES:
-                TRACE(TRACE_USB_FLOW,"handling MSG_SMS_ADD_PID_FILTER_RES\n");
-                DLG_COMPLETE(sc->dlg_status, DLG_PID_DONE);
+#endif
                 break;
-            case MSG_SMS_REMOVE_PID_FILTER_RES:
+            }
+        case MSG_SMS_GET_PID_FILTER_LIST_RES:
+        case MSG_SMS_GET_PID_FILTER_LIST_REQ:
+            /* 'REQ' instead of 'RES' : FAMILY1 firmware bug ? */
+            {
                 TRACE(TRACE_USB_FLOW,
-                    "handling MSG_SMS_REMOVE_PID_FILTER_RES\n");
+                    "handling MSG_SMS_GET_PID_FILTER_LIST_RES\n");
+
+#ifdef SMS1XXX_DEBUG
+                struct SmsMsgData_ST *pdata =
+                    (struct SmsMsgData_ST *)((u8 *) packet);
+                u32 nfilt = pdata->msgData[1];
+                u32 *filterList = &(pdata->msgData[2]);
+
+                TRACE(TRACE_FILTERS, "found %d filters in stack\n", nfilt);
+                for(int i = 0; i < nfilt; ++i) {
+                    TRACE(TRACE_FILTERS, "filter %u(0x%x) set\n",
+                        filterList[i], filterList[i]);
+                }
+#endif
                 DLG_COMPLETE(sc->dlg_status, DLG_PID_DONE);
                 break;
-            default:
-                TRACE(TRACE_USB_FLOW,"unhandled msg type\n");
-                break;
-        }
+            }
+        case MSG_SMS_ADD_PID_FILTER_RES:
+            TRACE(TRACE_USB_FLOW, "handling MSG_SMS_ADD_PID_FILTER_RES\n");
+            DLG_COMPLETE(sc->dlg_status, DLG_PID_DONE);
+            break;
+        case MSG_SMS_REMOVE_PID_FILTER_RES:
+            TRACE(TRACE_USB_FLOW,
+                "handling MSG_SMS_REMOVE_PID_FILTER_RES\n");
+            DLG_COMPLETE(sc->dlg_status, DLG_PID_DONE);
+            break;
+        case MSG_SW_RELOAD_START_RES:
+            TRACE(TRACE_USB_FLOW,
+                "handling MSG_SW_RELOAD_START_RES\n");
+            DLG_COMPLETE(sc->dlg_status, DLG_RELOAD_START_DONE);
+            break;
+        case MSG_SMS_DATA_DOWNLOAD_RES:
+            TRACE(TRACE_USB_FLOW,
+                "handling MSG_SMS_DATA_DOWNLOAD_RES\n");
+            DLG_COMPLETE(sc->dlg_status, DLG_DATA_DOWNLOAD_DONE);
+            break;
+        case MSG_SMS_SWDOWNLOAD_TRIGGER_RES:
+            TRACE(TRACE_USB_FLOW,
+                "handling MSG_SMS_SWDOWNLOAD_TRIGGER_RES\n");
+            DLG_COMPLETE(sc->dlg_status, DLG_SWDOWNLOAD_TRIGGER_DONE);
+            break;
+        default:
+            TRACE(TRACE_USB_FLOW,"unhandled msg type (%d)\n", phdr->msgType);
+#ifdef SMS1XXX_DEBUG
+            /* Dump raw data */
+            TRACE(TRACE_USB_DUMP,"dumping %d bytes :\n", bytes);
+            if(sms1xxxdbg & TRACE_USB_DUMP)
+                sms1xxx_dump_data((const u8*)phdr, bytes, '+');
+#endif
+            break;
     }
 }
 
@@ -319,7 +393,8 @@ sms1xxx_usb_rx_cb(struct usb_xfer *xfer, usb_error_t error)
 
     switch(USB_GET_STATE(xfer)) {
     case USB_ST_TRANSFERRED:
-        usbd_xfer_frame_data(xfer, 0, (void*)&sc->sc_rx_data.buf, &sc->sc_rx_data.buflen);
+        usbd_xfer_frame_data(xfer, 0, (void*)&sc->sc_rx_data.buf,
+            &sc->sc_rx_data.buflen);
 #ifdef DIAGNOSTIC
         sc->stats.interrupts++;
         sc->stats.bytes += sc->sc_rx_data.buflen;
@@ -364,7 +439,7 @@ sms1xxx_usb_xfers_start(struct sms1xxx_softc *sc)
         return (ENXIO);
     }
 
-    /* Initialize TX STAILQs */
+    /* Output : initialize TX STAILQs */
     STAILQ_INIT(&sc->sc_tx_inactive);
     STAILQ_INIT(&sc->sc_tx_pending);
     STAILQ_INIT(&sc->sc_tx_active);
@@ -379,26 +454,25 @@ sms1xxx_usb_xfers_start(struct sms1xxx_softc *sc)
         STAILQ_INSERT_TAIL(&sc->sc_tx_inactive, data, next);
     }
 
-    /* Input, only for warm devices */
-    if(sc->device->mode != DEVICE_MODE_NONE) {
-        /* DVR stuff */
-        sc->dvr.threshold = THRESHOLD;
-        sc->dvr.size = DVRBUFSIZE;
+    /* Input : DVR stuff */
+    sc->dvr.threshold = THRESHOLD;
+    sc->dvr.size = DVRBUFSIZE;
+    if(sc->dvr.buf == NULL) {
+        sc->dvr.buf = malloc(sc->dvr.size, M_USBDEV, M_WAITOK);
         if(sc->dvr.buf == NULL) {
-            sc->dvr.buf = malloc(sc->dvr.size, M_USBDEV, M_WAITOK);
-            if(sc->dvr.buf == NULL) {
-                ERR("could not allocate dvr buf\n");
-                return (ENOMEM);
-            }
-            sc->dvr.roff = 0;
-            sc->dvr.woff = 0;
-            sc->dvr.ravail = 0;
-            sc->dvr.wavail = sc->dvr.size;
+            ERR("could not allocate dvr buf\n");
+            return (ENOMEM);
         }
-        mtx_lock(&sc->sc_mtx);
-        usbd_transfer_start(sc->sc_xfer[SMS1XXX_BULK_RX]);
-        mtx_unlock(&sc->sc_mtx);
+        sc->dvr.roff = 0;
+        sc->dvr.woff = 0;
+        sc->dvr.ravail = 0;
+        sc->dvr.wavail = sc->dvr.size;
     }
+
+    /* Input : RX transfer */
+    mtx_lock(&sc->sc_mtx);
+    usbd_transfer_start(sc->sc_xfer[SMS1XXX_BULK_RX]);
+    mtx_unlock(&sc->sc_mtx);
 
     return (0);
 }
@@ -415,28 +489,26 @@ sms1xxx_usb_xfers_stop(struct sms1xxx_softc *sc)
         return (ENXIO);
     }
 
-    /* Input, only for warm devices */
-    if(sc->device->mode != DEVICE_MODE_NONE) {
-        mtx_lock(&sc->sc_mtx);
-        usbd_transfer_stop(sc->sc_xfer[SMS1XXX_BULK_RX]);
-        mtx_unlock(&sc->sc_mtx);
-        usbd_transfer_drain(sc->sc_xfer[SMS1XXX_BULK_RX]);
+    mtx_lock(&sc->sc_mtx);
+    usbd_transfer_stop(sc->sc_xfer[SMS1XXX_BULK_RX]);
+    mtx_unlock(&sc->sc_mtx);
+    usbd_transfer_drain(sc->sc_xfer[SMS1XXX_BULK_RX]);
 
-        /* DVR */
-        sc->dvr.ravail = 0;
-        sc->dvr.wavail = 0;
-        if(sc->dvr.buf != NULL) {
-            free(sc->dvr.buf, M_USBDEV);
-            sc->dvr.buf = NULL;
-        }
+    /* Input : DVR stuff */
+    sc->dvr.ravail = 0;
+    sc->dvr.wavail = 0;
+    if(sc->dvr.buf != NULL) {
+        free(sc->dvr.buf, M_USBDEV);
+        sc->dvr.buf = NULL;
     }
 
+    /* Input : RX transfer */
     mtx_lock(&sc->sc_mtx);
     usbd_transfer_stop(sc->sc_xfer[SMS1XXX_BULK_TX]);
     mtx_unlock(&sc->sc_mtx);
     usbd_transfer_drain(sc->sc_xfer[SMS1XXX_BULK_TX]);
 
-    /* Uninitialize TX STAILQs */
+    /* Output : un-initialize TX STAILQs */
     for (i = 0; i < SMS1XXX_BULK_TX_BUFS; i++) {
         struct sms1xxx_data *data = &sc->sc_tx_data[i];
         free(data->buf, M_USBDEV);
@@ -549,7 +621,8 @@ sms1xxx_usb_write_and_wait(struct sms1xxx_softc *sc, const u8 *wbuf,
  ***************************/
 
 /* Set requested mode and ask device to reattach */
-int sms1xxx_usb_setmode(struct sms1xxx_softc *sc, int mode)
+int
+sms1xxx_usb_setmode(struct sms1xxx_softc *sc, int mode)
 {
     TRACE(TRACE_USB,"mode=%d\n",mode);
 
@@ -561,15 +634,13 @@ int sms1xxx_usb_setmode(struct sms1xxx_softc *sc, int mode)
         0
     };
 
-    if ((mode < DEVICE_MODE_DVBT) ||
-        (mode > DEVICE_MODE_DVBT_BDA) ||
-        (!sc->device->firmware[mode][0])) {
+    if (sms1xxx_firmware_name(sc->sc_type, mode) == NULL) {
         ERR("invalid mode specified %d\n", mode);
         return (-EINVAL);
     }
 
     /* Set requested mode and ask device to re-attach */
-    sc->device->mode = DEVICE_MODE_NONE ;
+    sc->mode = DEVICE_MODE_NONE ;
     sc->device->requested_mode = mode ;
     sc->device->fw_loading = FALSE ;
     INFO("asking device to reset, target mode=%d\n",mode);
@@ -580,15 +651,14 @@ int sms1xxx_usb_setmode(struct sms1xxx_softc *sc, int mode)
 /* Initialize the device *after* firmware loading
    Does not seem to be necessary to make the device
    work, anyway... */
-int sms1xxx_usb_initdevice(struct sms1xxx_softc *sc, int mode)
+int
+sms1xxx_usb_initdevice(struct sms1xxx_softc *sc, int mode)
 {
     TRACE(TRACE_USB,"mode=%d\n", mode);
 
     struct SmsMsgData_ST InitMsg;
 
-    if ((mode < DEVICE_MODE_DVBT) ||
-        (mode > DEVICE_MODE_DVBT_BDA) ||
-        (!sc->device->firmware[mode][0]) ||
+    if ((sms1xxx_firmware_name(sc->sc_type, mode) == NULL) ||
         (mode != sc->device->requested_mode)) {
         ERR("invalid mode specified %d\n", mode);
         return (-EINVAL);
@@ -604,12 +674,85 @@ int sms1xxx_usb_initdevice(struct sms1xxx_softc *sc, int mode)
     return (sms1xxx_usb_write(sc, (u8*)&InitMsg, sizeof(InitMsg)));
 }
 
+/* Prepare a *warm* device to firmware upload */
+int
+sms1xxx_usb_reloadstart(struct sms1xxx_softc *sc)
+{
+    TRACE(TRACE_USB,"\n");
+
+    struct SmsMsgHdr_ST Msg = {
+        MSG_SW_RELOAD_START_REQ,
+        0,
+        HIF_TASK,
+        sizeof(struct SmsMsgHdr_ST),
+        0
+    };
+
+    return (sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),
+        DLG_RELOAD_START_DONE, FRONTEND_TIMEOUT));
+}
+
+/* Execute firmware on a *warm* device after firmware upload */
+/* XXX Does not seem to work : alignment pb ? */
+int
+sms1xxx_usb_reloadexec(struct sms1xxx_softc *sc)
+{
+    TRACE(TRACE_USB,"\n");
+
+    struct SmsMsgHdr_ST Msg = {
+        MSG_SW_RELOAD_EXEC_REQ,
+        0,
+        HIF_TASK,
+        sizeof(struct SmsMsgHdr_ST),
+        0
+    };
+
+    return (sms1xxx_usb_write(sc, (u8*)&Msg, sizeof(Msg)));
+}
+
+/* Execute firmware on a *cold* device after firmware upload */
+int
+sms1xxx_usb_swdtrigger(struct sms1xxx_softc *sc, u32 start_address)
+{
+    int err = 0;
+
+    TRACE(TRACE_USB,"start_address=%d\n", start_address);
+
+    /* SmsMsgData_ST with extra data */
+    int msgSize = sizeof(struct SmsMsgData_ST) + (sizeof(u32) * 4);
+
+    struct SmsMsgData_ST *TriggerMsg = malloc(msgSize, M_USBDEV, M_WAITOK);
+    if(TriggerMsg == NULL) {
+        ERR("could not allocate msg buffer\n");
+        return (ENOMEM);
+    }
+
+    TriggerMsg->xMsgHeader.msgType = MSG_SMS_SWDOWNLOAD_TRIGGER_REQ;
+    TriggerMsg->xMsgHeader.msgSrcId = 0;
+    TriggerMsg->xMsgHeader.msgDstId = HIF_TASK;
+    TriggerMsg->xMsgHeader.msgLength = msgSize;
+    TriggerMsg->xMsgHeader.msgFlags = 0;
+
+    TriggerMsg->msgData[0] = start_address; /* Entry point */
+    TriggerMsg->msgData[1] = 5;             /* Priority */
+    TriggerMsg->msgData[2] = 0x200;         /* Stack size */
+    TriggerMsg->msgData[3] = 0;             /* Parameter */
+    TriggerMsg->msgData[4] = 4;             /* Task ID */
+
+    /* XXX honour SMS_ROM_NO_RESPONSE and use sms1xxx_usb_write() ? */
+    err = sms1xxx_usb_write_and_wait(sc, (u8*)TriggerMsg,
+        msgSize, DLG_SWDOWNLOAD_TRIGGER_DONE, FRONTEND_TIMEOUT);
+
+    free(TriggerMsg, M_USBDEV);
+    return (err);
+}
+
 /* Get device version information
    The result is only used for information purpose ;
    it is not (yet ?) used by the driver
-   XXX No response : alignment pb ? */
-/*
-int sms1xxx_usb_getversion(struct sms1xxx_softc *sc)
+   XXX Seems to work on FAMILY2 devices only */
+int
+sms1xxx_usb_getversion(struct sms1xxx_softc *sc)
 {
     TRACE(TRACE_USB,"\n");
 
@@ -631,10 +774,10 @@ int sms1xxx_usb_getversion(struct sms1xxx_softc *sc)
 
     return (rc);
 }
-*/
 
 /* Get device statistics */
-int sms1xxx_usb_getstatistics(struct sms1xxx_softc *sc)
+int
+sms1xxx_usb_getstatistics(struct sms1xxx_softc *sc)
 {
     TRACE(TRACE_USB,"\n");
 
@@ -653,7 +796,8 @@ int sms1xxx_usb_getstatistics(struct sms1xxx_softc *sc)
 /* Get hardware PID filter list from device
    This list is only used for information purpose ;
    it is not (yet ?) used by the driver */
-int sms1xxx_usb_getpidfilterlist(struct sms1xxx_softc *sc)
+int
+sms1xxx_usb_getpidfilterlist(struct sms1xxx_softc *sc)
 {
     TRACE(TRACE_USB,"\n");
 
@@ -670,7 +814,8 @@ int sms1xxx_usb_getpidfilterlist(struct sms1xxx_softc *sc)
 }
 
 /* Tune device to a given frequency / bandwidth */
-int sms1xxx_usb_setfrequency(struct sms1xxx_softc *sc, u32 frequency,
+int
+sms1xxx_usb_setfrequency(struct sms1xxx_softc *sc, u32 frequency,
     fe_bandwidth_t bandwidth)
 {
     INFO("set frequency=%u, bandwidth=%u\n", frequency, bandwidth);
@@ -706,7 +851,8 @@ int sms1xxx_usb_setfrequency(struct sms1xxx_softc *sc, u32 frequency,
 }
 
 /* Add a PID to hardware PID filter list */
-int sms1xxx_usb_add_pid(struct sms1xxx_softc *sc, u16 pid)
+int
+sms1xxx_usb_add_pid(struct sms1xxx_softc *sc, u16 pid)
 {
     TRACE(TRACE_USB,"add PID %u(0x%x)\n", pid, pid);
 
@@ -729,7 +875,8 @@ int sms1xxx_usb_add_pid(struct sms1xxx_softc *sc, u16 pid)
 }
 
 /* Remove a PID from hardware PID filter list */
-int sms1xxx_usb_remove_pid(struct sms1xxx_softc *sc, u16 pid)
+int
+sms1xxx_usb_remove_pid(struct sms1xxx_softc *sc, u16 pid)
 {
     TRACE(TRACE_USB,"remove PID %u(0x%x)\n", pid, pid);
 

@@ -41,30 +41,44 @@ typedef u_int32_t   u32;
 typedef int32_t     s32;
 typedef boolean_t   bool;
 
+/* Card types */
+#define SMS1XXX_FAMILY_MASK                0xff00
+#define SMS1XXX_FAMILY1                    0x0000 /* USB 1.1 */
+#define SMS1XXX_FAMILY2                    0x0100 /* USB 2.0 */
+
+#define SMS1XXX_TYPE_MASK                  0x00ff
+#define SMS1XXX_TYPE_STELLAR              (0x0000 | SMS1XXX_FAMILY1)
+#define SMS1XXX_TYPE_NOVA_A               (0x0001 | SMS1XXX_FAMILY2)
+#define SMS1XXX_TYPE_NOVA_B               (0x0002 | SMS1XXX_FAMILY2)
+#define SMS1XXX_TYPE_VEGA                 (0x0003 | SMS1XXX_FAMILY2)
+#define SMS1XXX_TYPE_MIN                   SMS1XXX_TYPE_STELLAR
+#define SMS1XXX_TYPE_MAX                   SMS1XXX_TYPE_VEGA
+
 /* Vendor IDs */
 #define USB_VID_SIANO                      0x187f
-/* XXX Not tested
 #define USB_VID_HAUPPAUGE                  0x2040
-*/
 
 /* Product IDs */
-#define USB_PID_SIANO_SMS1000_USB11        0x0010
-#define USB_PID_SIANO_DMB_USB11            0x0100
-/* XXX Not tested
-#define USB_PID_HAUPPAUGE_CATAMOUNT        0x1700
-*/
+#define USB_PID_SIANO_SMS1000              0x0010
+#define USB_PID_SIANO_DMB                  0x0100
+#define USB_PID_HAUPPAUGE_MINISTICK_1295   0x5500
 
 /* Supported modes */
-enum SMS_DEVICE_MODE {
+enum SMS1XXX_DEVICE_MODE {
     DEVICE_MODE_NONE = -1,
     DEVICE_MODE_DVBT = 0,
     DEVICE_MODE_DVBH,
     DEVICE_MODE_DAB_TDMB,
     DEVICE_MODE_DAB_TDMB_DABIP,
     DEVICE_MODE_DVBT_BDA,
-    DEVICE_MODE_MAX,
+    DEVICE_MODE_ISDBT,
+    DEVICE_MODE_ISDBT_BDA,
+    DEVICE_MODE_CMMB,
+    DEVICE_MODE_RAW_TUNER,
 };
-#define DEVICE_MODE_DEFAULT DEVICE_MODE_DVBT_BDA
+#define DEVICE_MODE_DEFAULT                DEVICE_MODE_DVBT_BDA
+#define DEVICE_MODE_MIN                    DEVICE_MODE_DVBT
+#define DEVICE_MODE_MAX                    DEVICE_MODE_RAW_TUNER
 
 /* Interfaces */
 #define USB_SIANO_INTF_ROM                 0x00
@@ -88,10 +102,13 @@ struct sms1xxx_data {
 };
 typedef STAILQ_HEAD(, sms1xxx_data) sms1xxx_datahead;
 #define SMS1XXX_BULK_TX_BUFS                8
-#define SMS1XXX_BULK_TX_BUFS_SIZE           2048
-#define SMS1XXX_BULK_RX_BUFS_SIZE           4096 /* Mostly receives 3956 bytes
-                                                    (sizeof(struct SmsMsgHdr_ST)
-                                                    + 21 * PACKET_SIZE) */
+#define SMS1XXX_BULK_TX_BUFS_SIZE           512
+
+/* USB1.1 Terratec Cinergy Piranha mostly receives 3956 bytes :
+   (sizeof(struct SmsMsgHdr_ST) + 21 * PACKET_SIZE)
+   USB2.0 devices need more because those 21 packets may appear
+   following an offset (see MSG_HDR_FLAG_SPLIT_MSG) */
+#define SMS1XXX_BULK_RX_BUFS_SIZE           16384
 
 /* Bandwidths */
 #define BW_8_MHZ                            0
@@ -114,10 +131,18 @@ typedef STAILQ_HEAD(, sms1xxx_data) sms1xxx_datahead;
 #define MSG_SMS_GET_PID_FILTER_LIST_RES     609
 #define MSG_SMS_GET_STATISTICS_REQ          615
 #define MSG_SMS_GET_STATISTICS_RES          616
+#define MSG_SMS_DATA_DOWNLOAD_REQ           660
+#define MSG_SMS_DATA_DOWNLOAD_RES           661
+#define MSG_SMS_SWDOWNLOAD_TRIGGER_REQ      664
+#define MSG_SMS_SWDOWNLOAD_TRIGGER_RES      665
 #define MSG_SMS_GET_VERSION_EX_REQ          668
 #define MSG_SMS_GET_VERSION_EX_RES          669
 #define MSG_SMS_DVBT_BDA_DATA               693
 #define MSG_SW_RELOAD_REQ                   697
+#define MSG_SW_RELOAD_START_REQ             702
+#define MSG_SW_RELOAD_START_RES             703
+#define MSG_SW_RELOAD_EXEC_REQ              704
+#define MSG_SW_RELOAD_EXEC_RES              705
 
 #define SMS_INIT_MSG_EX(ptr, type, src, dst, len) do { \
     (ptr)->msgType = type; (ptr)->msgSrcId = src; (ptr)->msgDstId = dst; \
@@ -126,7 +151,7 @@ typedef STAILQ_HEAD(, sms1xxx_data) sms1xxx_datahead;
 #define SMS_INIT_MSG(ptr, type, len) \
     SMS_INIT_MSG_EX(ptr, type, 0, HIF_TASK, len)
 
-#define SMS_DMA_ALIGNMENT                   16
+#define SMS_DMA_ALIGNMENT               16
 #define SMS_ALIGN_ADDRESS(addr) \
     ((((uintptr_t)(addr)) + (SMS_DMA_ALIGNMENT-1)) & ~(SMS_DMA_ALIGNMENT-1))
 
@@ -134,6 +159,7 @@ typedef STAILQ_HEAD(, sms1xxx_data) sms1xxx_datahead;
  * Communication structures *
  ****************************/
 
+#define MSG_HDR_FLAG_SPLIT_MSG          4
 struct SmsMsgHdr_ST {
     u16 msgType;
     u8  msgSrcId;
@@ -145,6 +171,20 @@ struct SmsMsgHdr_ST {
 struct SmsMsgData_ST {
     struct SmsMsgHdr_ST xMsgHeader;
     u32                 msgData[1];
+};
+
+#define SMS_MAX_PAYLOAD_SIZE            240
+struct SmsDataDownload_ST {
+    struct SmsMsgHdr_ST xMsgHeader;
+    u32                 MemAddr;
+    u8                  Payload[SMS_MAX_PAYLOAD_SIZE];
+};
+
+struct SmsFirmware_ST {
+    u32 CheckSum;
+    u32 Length;
+    u32 StartAddress;
+    u8  Payload[1];
 };
 
 struct SMSHOSTLIB_STATISTICS_ST {
@@ -189,6 +229,7 @@ struct SMSHOSTLIB_STATISTICS_ST {
     u32 NumOfRows;          /* Number of rows in MPE table */
     u32 NumOfPaddCols;      /* Number of padding columns in MPE table */
     u32 NumOfPunctCols;     /* Number of puncturing columns in MPE table */
+
     /* Burst parameters */
     u32 ErrorTSPackets;     /* Number of erroneous transport-stream packets */
     u32 TotalTSPackets;     /* Total number of transport-stream packets */
@@ -232,7 +273,7 @@ struct SmsVersionRes_ST {
     u8  Step;               /* 0 - Step A */
     u8  MetalFix;           /* 0 - Metal 0 */
 
-    u8  FirmwareId;         /* 0xFF � ROM, otherwise the
+    u8  FirmwareId;         /* 0xFF for ROM, otherwise the
                              * value indicated by
                              * SMSHOSTLIB_DEVICE_MODES_E */
     u8  SupportedProtocols; /* Bitwise OR combination of
@@ -248,7 +289,8 @@ struct SmsVersionRes_ST {
     u8  RomVersionPatch;
     u8  RomVersionFieldPatch;
 
-    u8  TextLabel[34];
+#define MSG_VER_LABEL_SIZE            34
+    u8  TextLabel[MSG_VER_LABEL_SIZE];
 };
 
 #endif

@@ -40,12 +40,172 @@
 #include "sms1xxx-firmware.h"
 #include "sms1xxx-usb.h"
 
+static int sms1xxx_firmware_load_family1(struct sms1xxx_softc *,
+    const u8 *, u32);
+static int sms1xxx_firmware_load_family2(struct sms1xxx_softc *,
+    const u8 *, u32);
+
+static char *sms1xxx_firmwares
+    [(SMS1XXX_TYPE_MAX & SMS1XXX_TYPE_MASK) + 1]
+    [DEVICE_MODE_MAX + 1] = {
+/* STELLAR */
+    { "stellar_dvbt.fw",       /* DVBT */
+      "stellar_dvbh.fw",       /* DVBH */
+      "stellar_dabtdmb.fw",    /* DAB_TDMB */
+      "",                      /* DAB_TDMB_DABIP */
+      "stellar_dvbt.fw",       /* DVBT_BDA */
+      "",                      /* DEVICE_MODE_ISDBT */
+      "",                      /* DEVICE_MODE_ISDBT_BDA */
+      "",                      /* DEVICE_MODE_CMMB */
+      "" },                    /* DEVICE_MODE_RAW_TUNER */
+/* NOVA_A */
+    { "",                      /* DVBT */
+      "",                      /* DVBH */
+      "",                      /* DAB_TDMB */
+      "",                      /* DAB_TDMB_DABIP */
+      "",                      /* DVBT_BDA */
+      "",                      /* DEVICE_MODE_ISDBT */
+      "",                      /* DEVICE_MODE_ISDBT_BDA */
+      "",                      /* DEVICE_MODE_CMMB */
+      "" },                    /* DEVICE_MODE_RAW_TUNER */
+/* NOVA_B */
+    { "novab0_dvbbda.fw",      /* DVBT */
+      "novab0_dvbbda.fw",      /* DVBH */
+      "",                      /* DAB_TDMB */
+      "",                      /* DAB_TDMB_DABIP */
+      "novab0_dvbbda.fw",      /* DVBT_BDA */
+      "novab0_isdbtbda.fw",    /* DEVICE_MODE_ISDBT */
+      "novab0_isdbtbda.fw",    /* DEVICE_MODE_ISDBT_BDA */
+      "",                      /* DEVICE_MODE_CMMB */
+      "" },                    /* DEVICE_MODE_RAW_TUNER */
+/* VEGA */
+    { "",                      /* DVBT */
+      "",                      /* DVBH */
+      "",                      /* DAB_TDMB */
+      "",                      /* DAB_TDMB_DABIP */
+      "",                      /* DVBT_BDA */
+      "",                      /* DEVICE_MODE_ISDBT */
+      "",                      /* DEVICE_MODE_ISDBT_BDA */
+      "",                      /* DEVICE_MODE_CMMB */
+      "" },                    /* DEVICE_MODE_RAW_TUNER */
+};
+
+/* Return a firmware name given type and mode
+   Return NULL if an invalid type/mode is specified or if no firmware found */ 
+char *
+sms1xxx_firmware_name(unsigned long type, int mode) {
+    /* Check type, mode, and firmware existence */
+    if (((type & SMS1XXX_TYPE_MASK)>=(SMS1XXX_TYPE_MIN & SMS1XXX_TYPE_MASK))
+        && ((type & SMS1XXX_TYPE_MASK)<=(SMS1XXX_TYPE_MAX & SMS1XXX_TYPE_MASK))
+        && (mode >= DEVICE_MODE_MIN)
+        && (mode <= DEVICE_MODE_MAX)
+        && (sms1xxx_firmwares[type & SMS1XXX_TYPE_MASK][mode][0])) {
+        return sms1xxx_firmwares[type & SMS1XXX_TYPE_MASK][mode] ;
+    }
+    return NULL;
+}
+
 /* Load a firmware to the device using
-   the firmware(9) facility */
+   the firmware(9) facility (family1 devices) */
+static int
+sms1xxx_firmware_load_family1(struct sms1xxx_softc *sc, const u8 *data,
+    u32 datasize)
+{
+    if (sc->sc_dying)
+        return (ENXIO);
+
+    if ((data == NULL) || (datasize == 0))
+        return (EINVAL);
+
+    TRACE(TRACE_FIRMWARE, "data=%p, datasize=%d\n", data, datasize);
+    return sms1xxx_usb_write(sc, data, datasize);
+}
+
+/* Load a firmware to the device using
+   the firmware(9) facility (family2 devices) */
+static int
+sms1xxx_firmware_load_family2(struct sms1xxx_softc *sc, const u8 *data,
+    u32 datasize)
+{
+    if (sc->sc_dying)
+        return (ENXIO);
+
+    if ((data == NULL) || (datasize == 0))
+        return (EINVAL);
+
+    TRACE(TRACE_FIRMWARE, "data=%p, datasize=%d\n", data, datasize);
+
+    const struct SmsFirmware_ST *firmware = (const struct SmsFirmware_ST *)data;
+    u32 mem_address = firmware->StartAddress;
+    const u8 *payload = firmware->Payload;
+    int err = 0;
+
+    if (sc->mode != DEVICE_MODE_NONE) {
+        /* send reload start command on warm devices */
+        err = sms1xxx_usb_reloadstart(sc);
+        if(err != 0) {
+            TRACE(TRACE_FIRMWARE, "reloadstart() failed, err=%d\n", err);
+            return (EIO);
+        }
+        mem_address = *(const u32*) &payload[20];
+    }
+
+    struct SmsDataDownload_ST Msg;
+    struct SmsMsgHdr_ST *MsgHeader = (struct SmsMsgHdr_ST *) &Msg;
+    MsgHeader->msgType = MSG_SMS_DATA_DOWNLOAD_REQ;
+    MsgHeader->msgSrcId = 0;
+    MsgHeader->msgDstId = HIF_TASK;
+    MsgHeader->msgLength = 0;
+    MsgHeader->msgFlags = 0;
+
+    while(datasize && (err == 0)) {
+        /* upload firmware using chunks <= SMS_MAX_PAYLOAD_SIZE */
+        int payload_size = min((int) datasize, SMS_MAX_PAYLOAD_SIZE);
+        MsgHeader->msgLength = (u16)(sizeof(struct SmsMsgHdr_ST) +
+            sizeof(u32) + payload_size);
+        Msg.MemAddr = mem_address;
+        memcpy(Msg.Payload, payload, payload_size);
+
+        TRACE(TRACE_FIRMWARE, "sending firmware chunk, size=%d, "
+            "remaining=%d\n", payload_size, datasize - payload_size);
+
+        /* XXX honour SMS_ROM_NO_RESPONSE and use sms1xxx_usb_write() ? */
+        err = sms1xxx_usb_write_and_wait(sc, (u8*)&Msg,
+            MsgHeader->msgLength, DLG_DATA_DOWNLOAD_DONE, FRONTEND_TIMEOUT);
+
+        if(err == 0) {
+            payload += payload_size;
+            datasize -= payload_size;
+            mem_address += payload_size;
+        }
+    }
+
+#ifdef SMS1XXX_DEBUG
+    if ((err != 0) || (datasize > 0))
+        TRACE(TRACE_FIRMWARE, "firmware upload error, err=%d, done=%zu, "
+            "remaining=%d\n", err, payload - firmware->Payload, datasize);
+#endif
+
+    if (err == 0) {
+        /* send reload exec command on warm devices */
+        if (sc->mode != DEVICE_MODE_NONE)
+            err = sms1xxx_usb_reloadexec(sc);
+        /* or software download trigger on cold ones */
+        else
+            err = sms1xxx_usb_swdtrigger(sc, firmware->StartAddress);
+
+        TRACE(TRACE_FIRMWARE, "trigger done, err=%d\n", err);
+    }
+    return (err);
+}
+
+/* Wrapper that loads a firmware to the device using
+   family1 or family2-specific functions */
 int
 sms1xxx_firmware_load(struct sms1xxx_softc *sc, int mode)
 {
     const struct firmware *fw;
+    char *fw_name;
     int err = 0;
 
     TRACE(TRACE_FIRMWARE, "sc=%p, mode=%d\n", sc, mode);
@@ -53,34 +213,43 @@ sms1xxx_firmware_load(struct sms1xxx_softc *sc, int mode)
     if (sc->sc_dying)
         return (ENXIO);
 
-    if ((mode < DEVICE_MODE_DVBT) ||
-        (mode > DEVICE_MODE_DVBT_BDA) ||
-        (!sc->device->firmware[mode][0])) {
-        ERR("invalid mode specified %d\n", mode);
-        return (-EINVAL);
+    fw_name = sms1xxx_firmware_name(sc->sc_type, mode);
+    if (fw_name == NULL) {
+        ERR("no firmware support for type 0x%lx, mode %d\n", sc->sc_type, mode);
+        return (EINVAL);
     }
 
-    fw = firmware_get(sc->device->firmware[mode]);
+    TRACE(TRACE_FIRMWARE, "uploading firmware %s\n", fw_name);
+    fw = firmware_get(fw_name);
     if (fw) {
-        err = sms1xxx_usb_write(sc, fw->data, fw->datasize);
+        switch(sc->sc_type & SMS1XXX_FAMILY_MASK) {
+            case SMS1XXX_FAMILY1:
+                err = sms1xxx_firmware_load_family1(sc, fw->data, fw->datasize);
+                break;
+            case SMS1XXX_FAMILY2:
+                err = sms1xxx_firmware_load_family2(sc, fw->data, fw->datasize);
+                break;
+            default:
+                ERR("invalid device type 0x%lx\n",
+                    sc->sc_type & SMS1XXX_FAMILY_MASK);
+                err = (EINVAL);
+                break;
+        }
+        firmware_put(fw, FIRMWARE_UNLOAD);
         if (err == 0) {
-            sc->device->mode = DEVICE_MODE_NONE;
+            sc->mode = DEVICE_MODE_NONE;
             sc->device->requested_mode = mode;
             sc->device->fw_loading = TRUE;
             INFO("successfully uploaded firmware %s (%zd bytes)\n",
-                sc->device->firmware[mode],fw->datasize);
-            firmware_put(fw, FIRMWARE_UNLOAD);
-            return (0);
+                fw_name, fw->datasize);
         }
         else {
-            ERR("failed to upload firmware %s\n",
-                sc->device->firmware[mode]);
-            firmware_put(fw, FIRMWARE_UNLOAD);
+            ERR("failed to upload firmware %s\n", fw_name);
         }
     }
     else {
-        ERR("firmware %s not available (is module loaded ?)\n",
-            sc->device->firmware[mode]);
+        ERR("firmware %s not available (is module loaded ?)\n", fw_name);
+        err = (EINVAL);
     }
-    return (-ENOMEM);
+    return (err);
 }

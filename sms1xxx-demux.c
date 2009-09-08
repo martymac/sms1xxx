@@ -74,8 +74,10 @@ static int
 sms1xxx_dvr_open(struct cdev *dev, int flag, int mode, struct thread *p)
 {
     struct sms1xxx_softc *sc = dev->si_drv1;
+#ifdef SMS1XXX_DEBUG
     int unit = device_get_unit(sc->sc_dev);
     TRACE(TRACE_OPEN,"flag=%d, mode=%d, unit=%d\n", flag, mode, unit);
+#endif
 
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
@@ -92,9 +94,11 @@ static int
 sms1xxx_dvr_close(struct cdev *dev, int flag, int mode, struct thread *p)
 {
     struct sms1xxx_softc *sc = dev->si_drv1;
+#ifdef SMS1XXX_DEBUG
     int unit = device_get_unit(sc->sc_dev);
     TRACE(TRACE_OPEN,"flag=%d, mode=%d, filter=%d\n",
         flag, mode, unit);
+#endif
 
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
@@ -117,7 +121,7 @@ sms1xxx_dvr_get_data(struct sms1xxx_softc *sc, struct uio *uio)
     if(sc->dvr.ravail < sc->dvr.threshold)
         return (EBUSY);
 
-    TRACE(TRACE_DVR_READ,"wants: %u bytes, got: %u bytes\n",
+    TRACE(TRACE_DVR_READ,"wants: %zu bytes, got: %u bytes\n",
         uio->uio_resid, sc->dvr.ravail);
 
     total = MIN(uio->uio_resid, sc->dvr.ravail);
@@ -322,7 +326,6 @@ sms1xxx_demux_exit(struct sms1xxx_softc *sc)
     if(sc->demux_clones != NULL) {
         drain_dev_clone_events();
         clone_cleanup(&sc->demux_clones);
-        destroy_dev_drain(&sms1xxx_demux_cdevsw);
         sc->demux_clones = NULL;
     }
     mtx_destroy(&sc->filterlock);
@@ -671,7 +674,7 @@ sms1xxx_demux_clone(void *arg, struct ucred *cred, char *name,
 {
     char buf[40];
     int filtnr = 0;
-    int unit = -1;
+    int unit;
     struct sms1xxx_softc *sc = arg;
 
     TRACE(TRACE_OPEN,"name=%s\n",name);
@@ -698,7 +701,15 @@ sms1xxx_demux_clone(void *arg, struct ucred *cred, char *name,
         return;
     }
 
-    if(clone_create(&sc->demux_clones,&sms1xxx_demux_cdevsw,&unit,dev,0)) {
+    /* Clones are shared among devices, so handle unit numbers
+       manually by reserving a range of MAX_FILTERS units per-device
+       (clone_create will fail setting unit number automatically :
+       unit number assignment is done by crawling sc's (only) clones
+       and will not detect clones created for other devices, resulting
+       in trying to set twice the same unit number). */
+    unit = device_get_unit(sc->sc_dev) * MAX_FILTERS + filtnr;
+
+    if(clone_create(&sc->demux_clones, &sms1xxx_demux_cdevsw, &unit, dev, 0)) {
         *dev = make_dev_credf(MAKEDEV_REF, &sms1xxx_demux_cdevsw,
             unit, NULL, UID_ROOT, GID_WHEEL,
             0666, "dvb/adapter%d/demux0.%d",

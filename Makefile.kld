@@ -1,16 +1,13 @@
 CFLAGS=-I./include
 SUBDIR=	firmwares
-CLEANFILES=	machine @
-SRCS=bus_if.h device_if.h opt_usb.h \
+CLEANFILES=	machine @ sms1xxx.ko.debug sms1xxx.ko.symbols
+SRCS=bus_if.h device_if.h usb_if.h opt_bus.h opt_usb.h \
     sms1xxx-firmware.c \
 	sms1xxx-usb.c \
 	sms1xxx-frontend.c \
 	sms1xxx-demux.c \
-	sms1xxx.c \
-	opt_bus.h \
-	usb_if.h
+	sms1xxx.c
 KMOD=sms1xxx
 KMODDIR?=/boot/modules
-#DEBUG_FLAGS=-g -DUSB_DEBUG -DDIAGNOSTIC
 
 .include <bsd.kmod.mk>

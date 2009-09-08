@@ -171,10 +171,12 @@ sms1xxx_frontend_get_tune_settings(struct sms1xxx_softc *sc,
 static int
 sms1xxx_frontend_open(struct cdev *dev, int flag, int mode, struct thread *p)
 {
-    struct sms1xxx_softc *sc = dev->si_drv1;
-    int unit = device_get_unit(sc->sc_dev);
     int err = 0;
+    struct sms1xxx_softc *sc = dev->si_drv1;
+#ifdef SMS1XXX_DEBUG
+    int unit = device_get_unit(sc->sc_dev);
     TRACE(TRACE_OPEN,"flag=%d mode=%d unit=%d\n",flag,mode,unit);
+#endif
 
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
@@ -195,8 +197,10 @@ static int
 sms1xxx_frontend_close(struct cdev *dev, int flag, int mode, struct thread *p)
 {
     struct sms1xxx_softc *sc = dev->si_drv1;
+#ifdef SMS1XXX_DEBUG
     int unit = device_get_unit(sc->sc_dev);
     TRACE(TRACE_OPEN,"flag=%d mode=%d unit=%d\n",flag,mode,unit);
+#endif
 
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_OPEN,"dying! sc=%p\n",sc);

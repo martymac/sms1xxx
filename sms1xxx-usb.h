@@ -45,6 +45,9 @@ int sms1xxx_usb_write_and_wait(struct sms1xxx_softc *, const u8 *, u32,
 
 int sms1xxx_usb_setmode(struct sms1xxx_softc *, int) ;
 int sms1xxx_usb_initdevice(struct sms1xxx_softc *, int) ;
+int sms1xxx_usb_reloadstart(struct sms1xxx_softc *) ;
+int sms1xxx_usb_reloadexec(struct sms1xxx_softc *) ;
+int sms1xxx_usb_swdtrigger(struct sms1xxx_softc *, u32) ;
 int sms1xxx_usb_getversion(struct sms1xxx_softc *) ;
 int sms1xxx_usb_getstatistics(struct sms1xxx_softc *) ;
 int sms1xxx_usb_getpidfilterlist(struct sms1xxx_softc *) ;

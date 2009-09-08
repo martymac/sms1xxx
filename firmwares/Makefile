@@ -1,5 +1,7 @@
-SUBDIR=	SMS100x_DabTdmb \
-		SMS100x_Dvbh \
-		SMS100x_Dvbt
+SUBDIR=	stellar_dabtdmb \
+		stellar_dvbh \
+		stellar_dvbt \
+		novab0_dvbbda \
+		novab0_isdbtbda
 
 .include <bsd.subdir.mk>

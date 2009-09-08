@@ -30,6 +30,7 @@
 
 #include "sms1xxx.h"
 
+char * sms1xxx_firmware_name(unsigned long, int);
 int sms1xxx_firmware_load(struct sms1xxx_softc *, int);
 
 #endif
