@@ -1,6 +1,6 @@
 /*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
- *  Copyright (C) 2008 - Ganaël Laplanche, http://contribs.martymac.com
+ *  Copyright (C) 2008-2009 - Ganaël Laplanche, http://contribs.martymac.org
  *
  *  This driver contains code taken from the FreeBSD dvbusb driver:
  *
@@ -30,7 +30,7 @@
  * * * *
  */
 
-/* uid(9) stuff */
+/* uio(9) stuff */
 #include <sys/types.h>
 #include <sys/uio.h>
 
@@ -99,6 +99,14 @@ sms1xxx_dvr_close(struct cdev *dev, int flag, int mode, struct thread *p)
     TRACE(TRACE_OPEN,"flag=%d, mode=%d, filter=%d\n",
         flag, mode, unit);
 #endif
+    /* Wake up readers ! */
+    if(sc->dvr.state & DVR_SLEEP) {
+        wakeup(&sc->dvr);
+    }
+    if(sc->dvr.state & DVR_POLL) {
+        sc->dvr.state &= ~DVR_POLL;
+        selwakeuppri(&sc->dvr.rsel,PZERO);
+    }
 
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
@@ -152,7 +160,7 @@ sms1xxx_dvr_get_data(struct sms1xxx_softc *sc, struct uio *uio)
     mtx_lock(&sc->dvr.lock);
     sc->dvr.ravail -= total;
     sc->dvr.wavail += total;
-#ifdef DIAGNOSTIC
+#ifdef SMS1XXX_DIAGNOSTIC
        if(sc->dvr.wavail > sc->stats.max_wavail)
            sc->stats.max_wavail = sc->dvr.wavail;
        if(sc->dvr.ravail < sc->stats.min_ravail)
@@ -267,17 +275,34 @@ sms1xxx_demux_clone(void *arg, struct ucred *cred, char *name,
  ****************************/
 
 /* Called from attach */
-void
+int
 sms1xxx_demux_init(struct sms1xxx_softc *sc)
 {
+    /* Mutexes */
+    mtx_init(&sc->dvr.lock, "DVB Dvr lock", NULL, MTX_DEF);
+    mtx_init(&sc->filterlock, "DVB Filter lock", NULL, MTX_DEF);
+
+    /* DVR */
+    sc->dvr.threshold = THRESHOLD;
+    sc->dvr.size = DVRBUFSIZE;
+    sc->dvr.buf = malloc(sc->dvr.size, M_USBDEV, M_WAITOK);
+    if(sc->dvr.buf == NULL) {
+        ERR("could not allocate dvr buf\n");
+        mtx_destroy(&sc->filterlock);
+        mtx_destroy(&sc->dvr.lock);
+        return (ENOMEM);
+    }
+    sms1xxx_demux_pesbuf_reset(sc, 0, "init");
+    sc->dvr.state = 0;
+
+    /* Filters */
     int i;
     for(i = 0; i < MAX_FILTERS; ++i) {
         sc->filter[i].dev = NULL;
         sc->filter[i].pid = PIDFREE;
     }
 
-    mtx_init(&sc->filterlock, "DVB Filter lock", NULL, MTX_DEF);
-    mtx_init(&sc->dvr.lock, "DVB Dvr lock", NULL, MTX_DEF);
+    /* Devices */
     clone_setup(&sc->demux_clones);
     sc->clonetag = EVENTHANDLER_REGISTER(dev_clone, sms1xxx_demux_clone,
                          sc, 1000);
@@ -290,12 +315,14 @@ sms1xxx_demux_init(struct sms1xxx_softc *sc)
         sc->dvr.dev->si_drv1 = sc;
 
     TRACE(TRACE_MODULE,"created dvr0 device, addr=%p\n",sc->dvr.dev);
+    return (0);
 }
 
 /* Called from detach */
 void
 sms1xxx_demux_exit(struct sms1xxx_softc *sc)
 {
+    /* Wake up readers ! */
     if(sc->dvr.state & DVR_SLEEP) {
         wakeup(&sc->dvr);
     }
@@ -303,6 +330,8 @@ sms1xxx_demux_exit(struct sms1xxx_softc *sc)
         sc->dvr.state &= ~DVR_POLL;
         selwakeuppri(&sc->dvr.rsel,PZERO);
     }
+
+    /* Devices */
     if(sc->dvr.dev != NULL) {
         TRACE(TRACE_MODULE,"destroying dvr0, addr=%p\n",sc->dvr.dev);
         destroy_dev(sc->dvr.dev);
@@ -322,12 +351,21 @@ sms1xxx_demux_exit(struct sms1xxx_softc *sc)
             destroy_dev_sched(sc->filter[i].dev);
         }
     }
-
     if(sc->demux_clones != NULL) {
         drain_dev_clone_events();
         clone_cleanup(&sc->demux_clones);
         sc->demux_clones = NULL;
     }
+
+    /* DVR */
+    sc->dvr.state = 0;
+    sms1xxx_demux_pesbuf_reset(sc, 0, "exit");
+    if(sc->dvr.buf != NULL) {
+        free(sc->dvr.buf, M_USBDEV);
+        sc->dvr.buf = NULL;
+    }
+
+    /* Mutexes */
     mtx_destroy(&sc->filterlock);
     mtx_destroy(&sc->dvr.lock);
 }
@@ -338,7 +376,7 @@ sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
 {
     int i, done = 0, dvrdone = 0;
     u16 pid = TS_GET_PID(p);
-#ifdef DIAGNOSTIC
+#ifdef SMS1XXX_DIAGNOSTIC
     u8 cc = TS_GET_CC(p);
 #endif
 
@@ -347,6 +385,7 @@ sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
          if(pid != f->pid && f->pid != PIDALL) {
              continue;
          }
+         /* dvr0 device */
          if(f->type == FILTER_TYPE_PES && !dvrdone) {
              if(sc->dvr.wavail >= PACKET_SIZE) {
                  memcpy(sc->dvr.buf+sc->dvr.woff,p,PACKET_SIZE);
@@ -357,7 +396,7 @@ sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
                  mtx_lock(&sc->dvr.lock);
                  sc->dvr.wavail -= PACKET_SIZE;
                  sc->dvr.ravail += PACKET_SIZE;
-#ifdef DIAGNOSTIC
+#ifdef SMS1XXX_DIAGNOSTIC
                  if(sc->dvr.wavail < sc->stats.min_wavail)
                      sc->stats.min_wavail = sc->dvr.wavail;
                  if(sc->dvr.ravail > sc->stats.max_ravail)
@@ -373,12 +412,20 @@ sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
              else {
                  sc->dvr.nobufs++;
              }
-             if(sc->dvr.ravail >= sc->dvr.threshold)
-                 sc->dvr.state |= DVR_AWAKE;
+             if(sc->dvr.ravail >= sc->dvr.threshold) {
+                 /* Wake up readers ! */
+                 if(sc->dvr.state & DVR_SLEEP)
+                     wakeup(&sc->dvr);
+                 if(sc->dvr.state & DVR_POLL) {
+                     sc->dvr.state &= ~DVR_POLL;
+                     selwakeuppri(&sc->dvr.rsel, PZERO);
+                 }
+             }
              dvrdone = 1;
          }
+         /* demux0.n devices */
          else if(f->type == FILTER_TYPE_SECT) {
-#ifndef DIAGNOSTIC
+#ifndef SMS1XXX_DIAGNOSTIC
              u8 cc = TS_GET_CC(p);
 #endif
              if(cc == f->cc)
@@ -388,11 +435,11 @@ sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
                     "discontinuity");
                  done = 1;
              }
-#ifndef DIAGNOSTIC
+#ifndef SMS1XXX_DIAGNOSTIC
              f->cc = (cc + 1) & 0xF;
 #endif
          }
-#ifdef DIAGNOSTIC
+#ifdef SMS1XXX_DIAGNOSTIC
          if(cc != sc->filter[i].cc &&
          cc != sc->filter[i].cc - 1) {
              WARN("discontinuity for pid: %d expected: %x "
@@ -401,6 +448,32 @@ sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
          sc->stats.packetsmatched++;
          sc->filter[i].cc = (cc + 1) & 0xF;
 #endif
+    }
+    return;
+}
+
+void
+sms1xxx_demux_pesbuf_reset(struct sms1xxx_softc *sc,
+    int wake, char *msg)
+{
+    TRACE(TRACE_SECT,"reason: %s\n",msg);
+
+    mtx_lock(&sc->dvr.lock);
+    sc->dvr.roff = 0;
+    sc->dvr.woff = 0;
+    sc->dvr.ravail = 0;
+    sc->dvr.wavail = sc->dvr.size;
+    mtx_unlock(&sc->dvr.lock);
+
+    if(wake) {
+        /* Wake up readers ! */
+        if(sc->dvr.state & DVR_SLEEP) {
+            wakeup(&sc->dvr);
+        }
+        if(sc->dvr.state & DVR_POLL) {
+            sc->dvr.state &= ~DVR_POLL;
+            selwakeuppri(&sc->dvr.rsel,PZERO);
+        }
     }
 }
 
@@ -554,6 +627,7 @@ sms1xxx_demux_sectbuf_reset(struct sms1xxx_softc *sc, struct filter *f,
 
     if(wake) {
         f->state |= FILTER_OVERFLOW;
+        /* Wake up readers ! */
         if(f->state & FILTER_SLEEP)
             wakeup(f);
         if(f->state & FILTER_POLL) {
@@ -587,7 +661,7 @@ sms1xxx_demux_write_section(struct sms1xxx_softc *sc, u8 *p,
             sms1xxx_demux_sectbuf_reset(sc, f, 1, "corrupt packet");
             return (1);
         }
-#ifdef DIAGNOSTIC
+#ifdef SMS1XXX_DIAGNOSTIC
         /* XXX Check if the old section is finished */
         if(f->wtodo != 0) {
             WARN("pid: %hu section not finished but new pusi "
@@ -610,7 +684,7 @@ sms1xxx_demux_write_section(struct sms1xxx_softc *sc, u8 *p,
 
     total = MIN(f->wtodo,len);
     if(total > f->wavail) {
-#ifdef DIAGNOSTIC
+#ifdef SMS1XXX_DIAGNOSTIC
         WARN("pid: %hu no section buffer space available\n",f->pid);
 #endif
         sms1xxx_demux_sectbuf_reset(sc, f, 1, "no buffer space");
@@ -648,6 +722,7 @@ sms1xxx_demux_write_section(struct sms1xxx_softc *sc, u8 *p,
         TRACE(TRACE_SECT,"pid: %hu writing section done sectcnt: %d\n"
             ,f->pid, f->sectcnt);
 
+        /* Wake up readers ! */
         if(f->state & FILTER_SLEEP)
             wakeup(f);
         if(f->state & FILTER_POLL) {
@@ -661,7 +736,7 @@ sms1xxx_demux_write_section(struct sms1xxx_softc *sc, u8 *p,
         f->ravail += total;
         mtx_unlock(&sc->filterlock);
     }
-#ifdef DIAGNOSTIC
+#ifdef SMS1XXX_DIAGNOSTIC
     if(total < len && TS_GET_SECT_TBLID(payload+total) != 0xFF)
         WARN("possible section(s) discarded\n");
 #endif
@@ -1113,7 +1188,7 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
         err = ENOTTY;
         ERR("DMX_GET_STC ioctl not implemented\n");
         break;
-#ifdef DIAGNOSTIC
+#ifdef SMS1XXX_DIAGNOSTIC
     case SMS1XXX_GET_STATS:
         {
             struct sms1xxx_stats *stats = arg;

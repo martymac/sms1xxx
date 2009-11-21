@@ -14,7 +14,7 @@ http://linuxtv.org/wiki/index.php/TerraTec_Cinergy_Piranha
 The FreeBSD driver has been successfully tested with two devices :
 
 - Terratec Cinergy Piranha DVB-T USB Dongle
-- Hauppauge WinTV MiniStick (25 years edition)
+- Hauppauge WinTV MiniStick (HD)
 
 Other devices should work, just give a try (you may want to add new
 VIDs/PIDs to make your device detected).
@@ -65,33 +65,18 @@ mv SMS100x_DabTdmb.inp firmwares/stellar_dabtdmb/stellar_dabtdmb.fw
 
 Get the following file :
 
-http://www.wintvcd.co.uk/drivers/WinTV-MiniStick_4_1_31_26239_WHQL.zip
-
-Unpack the firmware file :
-
-unzip -j WinTV-MiniStick_4_1_31_26239_WHQL.zip driver17/hcw17dvb.11b
-
-And move it to its directory :
-
-mv hcw17dvb.11b firmwares/novab0_dvbbda/novab0_dvbbda.fw
-
-* Dell Digital TV receiver (WinTV MiniStick clone - NOT TESTED) :
-
-This key should work but has not been tested. Anyway, you can use its
-firmware files with the WinTV Ministick. Get the following file :
-
-http://ftp.us.dell.com/video/R201996.EXE
+http://www.wintvcd.co.uk/drivers/WinTV-MiniStick_4_2_10_27180_WHQL.zip
 
 Unpack the 2 firmware files :
 
-unzip -j R201996.EXE \
- install/driver17/hcw17dvb.1b0 \
- install/driver17/hcw17isd.1b0
+unzip -j WinTV-MiniStick_4_2_10_27180_WHQL.zip \
+ driver17/hcw17dvb.1b0 \
+ driver17/hcw17isd.1b0
 
 And move them to their own directories :
 
 mv hcw17dvb.1b0 firmwares/novab0_dvbbda/novab0_dvbbda.fw
-mv hcw17isd.1b0 firmwares/novab0_dvbbda/novab0_isdbtbda.fw
+mv hcw17isd.1b0 firmwares/novab0_isdbtbda/novab0_isdbtbda.fw
 
 Building and installing everything :
 ************************************
@@ -125,7 +110,8 @@ Finally, it might be necessary to tune a few sysctls :
 * hw.usb.sms1xxx.freq_offset: Global frequency offset (Hz)
 This sysctl will apply a global offset each time a tuning is performed.
 166000 is necessary for Paris (France). It may or may not be necessary to
-change that value, depending on where you live.
+change that value, depending on where you live and the kind of hardware
+you use.
 * hw.usb.sms1xxx.requested_mode: Requested mode
 (0=DVB-T, 1=DVB-H, 2=DAB/T-DMB, 4=DVB-T/BDA, 5=ISDBT, 6=ISDBT/BDA)
 This sysctl is the mode that will be requested when plugging the device.
@@ -168,6 +154,7 @@ w_scan        : searches for channels (initial or full search)
 scan-dvb-apps : searches for channels (using an initial frequency list)
 tzap-dvb-apps : tunes to a specific channel
 dvbtools      : various DVB tools (dvbstream, dvbtune, dvbdate)
+rc5watch      : displays IR codes sent by the remote controller (see below)
 
 There is also a conf/ directory which contains my configuration files. They
 are suitable for France (Paris) and need a freq_offset set to 166000.
@@ -231,6 +218,36 @@ Other applications :
   
   or by selecting the "open capture device" entry in the "media' menu.
 
+IR (infrared) support :
+***********************
+
+If IR is supported by your device, an 'ir0' device will appear in your
+DVB adapter's device directory (/dev/dvb/adapter0/ir0).
+
+Reading this device will give you access to raw IR data received by the
+adapter (use the provided remote control, if any).
+
+It the IR module is sucessfully started, the 'ir_module_started' sysctl
+of your device's node will also be set to 1.
+
+For your convenience, an utility that decodes and prints received
+events in a human-friendly format is available in the apps/rc5watch
+directory.
+
+Type 'make' to build it, then, once your device is plugged, run :
+
+./rc5watch
+
+Each received event will appear on stdout in the following form :
+
+toggle:address:command
+
+It is then possible to use this utility in a script that will perform
+various actions given received key codes (see rc5exec.sh.sample).
+
+It might also be possible to use the 'ir0' device with LIRC, but it has not
+been tested. If you manage to make it work, please tell me :)
+
 Links :
 *******
 
@@ -253,4 +270,4 @@ Author :
 ********
 
 This driver has been written by Ganaël Laplanche
-(http://contribs.martymac.com). Any comment is welcome !
+(http://contribs.martymac.org). Any comment is welcome !

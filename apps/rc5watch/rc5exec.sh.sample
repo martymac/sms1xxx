@@ -1,0 +1,24 @@
+#!/bin/sh
+
+RC5WATCHBIN="./rc5watch"
+
+while LINE=`${RC5WATCHBIN} -t -n1 2>/dev/null`
+do
+  KEY=`echo ${LINE} | cut -d ':' -f 3`
+  case "${KEY}" in
+    "1")
+      echo "Key 1 pressed"
+      # [...] Add action for key 1 here
+    ;;
+    "2")
+      echo "Key 2 pressed"
+      # [...] Add action for key 2 here
+    ;;
+    # [...] Add other keys here [...]
+    *)
+      echo "Key not handled"
+    ;;
+  esac
+done
+
+exit 0

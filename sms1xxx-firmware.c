@@ -1,6 +1,6 @@
 /*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
- *  Copyright (C) 2008 - Ganaël Laplanche, http://contribs.martymac.com
+ *  Copyright (C) 2008-2009 - Ganaël Laplanche, http://contribs.martymac.org
  *
  *  This driver contains code taken from the FreeBSD dvbusb driver:
  *
@@ -46,7 +46,7 @@ static int sms1xxx_firmware_load_family2(struct sms1xxx_softc *,
     const u8 *, u32);
 
 static char *sms1xxx_firmwares
-    [(SMS1XXX_TYPE_MAX & SMS1XXX_TYPE_MASK) + 1]
+    [((SMS1XXX_TYPE_MAX & SMS1XXX_TYPE_MASK) >> 16) + 1]
     [DEVICE_MODE_MAX + 1] = {
 /* STELLAR */
     { "stellar_dvbt.fw",       /* DVBT */
@@ -99,10 +99,10 @@ sms1xxx_firmware_name(unsigned long type, int mode) {
         && ((type & SMS1XXX_TYPE_MASK)<=(SMS1XXX_TYPE_MAX & SMS1XXX_TYPE_MASK))
         && (mode >= DEVICE_MODE_MIN)
         && (mode <= DEVICE_MODE_MAX)
-        && (sms1xxx_firmwares[type & SMS1XXX_TYPE_MASK][mode][0])) {
-        return sms1xxx_firmwares[type & SMS1XXX_TYPE_MASK][mode] ;
+        && (sms1xxx_firmwares[(type & SMS1XXX_TYPE_MASK) >> 16][mode][0])) {
+        return sms1xxx_firmwares[(type & SMS1XXX_TYPE_MASK) >> 16][mode] ;
     }
-    return NULL;
+    return (NULL);
 }
 
 /* Load a firmware to the device using

@@ -25,24 +25,42 @@
  *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ifndef SMS1XXX_FRONTEND_H
-#define SMS1XXX_FRONTEND_H
+#ifndef SMS1XXX_IR_H
+#define SMS1XXX_IR_H
 
 #include "sms1xxx.h"
 
-void sms1xxx_frontend_init(struct sms1xxx_softc *);
-void sms1xxx_frontend_exit(struct sms1xxx_softc *);
+#define IR_DEFAULT_TIMEOUT  100
 
-int sms1xxx_frontend_read_status(struct sms1xxx_softc *, fe_status_t *);
-int sms1xxx_frontend_read_ber(struct sms1xxx_softc *, u32 *);
-int sms1xxx_frontend_read_ucblocks(struct sms1xxx_softc *, u32 *);
-int sms1xxx_frontend_read_signal_strength(struct sms1xxx_softc *, u16 *);
-int sms1xxx_frontend_read_snr(struct sms1xxx_softc *, u16 *);
-int sms1xxx_frontend_set_frontend(struct sms1xxx_softc *,
-    struct dvb_frontend_parameters *);
-int sms1xxx_frontend_get_frontend(struct sms1xxx_softc *,
-    struct dvb_frontend_parameters *);
-int sms1xxx_frontend_get_tune_settings(struct sms1xxx_softc *,
-    struct dvb_frontend_tune_settings *);
+/* Board IR configuration */
+struct sms1xxx_ir {
+    /* IR module state */
+    u8  module_avail;    /* Has board an IR module ?
+                            XXX Should be based on GPIO cfg ? */
+    u8  module_started;  /* Is IR module started ? */
+    struct cdev *dev;    /* ir0 device */
+
+    /* MSG_SMS_START_IR_REQ Msg parameters */
+    u32 controller;
+    u32 timeout;
+
+    /* Data handling */
+#define SMS1XXX_IR_BUFSIZE  1024
+    u8 buf[SMS1XXX_IR_BUFSIZE]; /* our circular buffer */
+    u16 woff;            /* write offset */
+    u16 wavail;          /* space available for writing */
+    u16 roff;            /* read offset */
+    u16 ravail;          /* space available for writing */
+    struct mtx lock;
+#define IR_OPEN    0x0001
+#define IR_SLEEP   0x0002
+    u32 state;
+};
+
+struct sms1xxx_softc;
+
+int sms1xxx_ir_init(struct sms1xxx_softc *);
+int sms1xxx_ir_exit(struct sms1xxx_softc *);
+int sms1xxx_ir_put_packet(struct sms1xxx_softc *, const u8 *, u32);
 
 #endif

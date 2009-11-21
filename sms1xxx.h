@@ -1,6 +1,6 @@
 /*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
- *  Copyright (C) 2008 - Ganaël Laplanche, http://contribs.martymac.com
+ *  Copyright (C) 2008-2009 - Ganaël Laplanche, http://contribs.martymac.org
  *
  *  This driver contains code taken from the FreeBSD dvbusb driver:
  *
@@ -49,46 +49,19 @@
 
 /* Our stuff */
 #include "sms1xxx-coreapi.h"
-#ifdef DIAGNOSTIC
-#include "sms1xxx-diagnostic.h"
-#endif
+#include "sms1xxx-debug.h"
+#include "sms1xxx-ir.h"
 
 /* Linux stuff */
 #include "linux/dvb/frontend.h"
 
 /* sysctl(9) defaults */
-#ifdef SMS1XXX_DEBUG
-#ifndef SMS1XXX_DEBUG_DEFAULT_LEVEL
-#define SMS1XXX_DEBUG_DEFAULT_LEVEL     0
-#endif
-#endif
-
 #ifndef SMS1XXX_DEFAULT_FREQ_OFFSET
 #define SMS1XXX_DEFAULT_FREQ_OFFSET  0
 #endif
 
-/* or-able TRACE values */
-#define TRACE_PROBE     0x0001
-#define TRACE_MODULE    0x0002
-#define TRACE_OPEN      0x0004
-#define TRACE_IOCTL     0x0008
-#define TRACE_READ      0x0010
-#define TRACE_DVR_READ  0x0020
-#define TRACE_POLL      0x0040
-#define TRACE_USB       0x0080
-#define TRACE_USB_FLOW  0x0100
-#define TRACE_USB_DUMP  0x0200
-#define TRACE_FIRMWARE  0x0400
-#define TRACE_CC        0x0800
-#define TRACE_SECT      0x1000
-#define TRACE_FILTERS   0x2000
-
 #ifdef SMS1XXX_DEBUG
 extern int sms1xxxdbg;
-#define TRACE(R, FMT, ...) if(sms1xxxdbg & R) \
-    printf("%s: " FMT, __func__ , ##__VA_ARGS__)
-#else
-#define TRACE(R, FMT, ...)
 #endif
 
 #define ERR(FMT, ...) printf("%s: Error : " FMT, __func__ , ##__VA_ARGS__)
@@ -150,12 +123,15 @@ struct sms1xxx_softc {
                                         xfer's frame buffer */
 
     /* State */
-    u8  sc_iface_index;              /* current interface */
-    unsigned long sc_type;           /* interface type */
-    int sc_dying;                    /* is sc dying ? */
-    int usbinit;                     /* USB already initialized */
-    int usbrefs;                     /* frontend & demux references */
-    int mode;                        /* current mode */
+    u8  sc_iface_index;           /* current interface */
+    unsigned long sc_type;        /* interface type */
+    int sc_dying;                 /* is sc dying ? */
+    int usbinit;                  /* USB already initialized */
+    int usbrefs;                  /* frontend & demux references */
+    int mode;                     /* current mode */
+
+    /* IR */
+    struct sms1xxx_ir ir;         /* infrared state and data */
 
     /* Dialog synchronization helpers */
 #define FRONTEND_TIMEOUT                2500 /* timeout (msec) for frontend
@@ -166,24 +142,27 @@ struct sms1xxx_softc {
 #define DLG_STAT_DONE                   0x01 /* get statistics operation */
 #define DLG_TUNE_DONE                   0x02 /* tuning operation */
 #define DLG_PID_DONE                    0x04 /* pid operations */
-#define DLG_RELOAD_START_DONE           0x08 /* firmware upload (init) */
-#define DLG_DATA_DOWNLOAD_DONE          0x10 /* firmware upload */
-#define DLG_SWDOWNLOAD_TRIGGER_DONE     0x20 /* firmware upload (start) */
+#define DLG_INIT_DONE                   0x08 /*  (init) */
+#define DLG_RELOAD_START_DONE           0x10 /* firmware upload (init) */
+#define DLG_DATA_DOWNLOAD_DONE          0x20 /* firmware upload */
+#define DLG_SWDOWNLOAD_TRIGGER_DONE     0x40 /* firmware upload (start) */
+#define DLG_IR_DONE                     0x80 /* IR module start */
     char dlg_status;
 
     /* Frontend */
     struct cdev *frontenddev;
     struct dvb_frontend_parameters fe_params;
     fe_status_t fe_status;
-    u32 fe_ber, fe_unc;
-    u16 fe_snr, fe_signal_strength;
     int feopen;
+
+    /* DVB Statistics */
+    struct SMSHOSTLIB_STATISTICS_DVB_S sms_stat_dvb;
 
     /* Demuxer */
     int streamrefs;
     eventhandler_tag clonetag;
     struct clonedevs *demux_clones;
-#define MAX_FILTERS 16     /* maximum number of active filters per device */
+#define MAX_FILTERS 32     /* maximum number of active filters per device */
 /* PID values */
 #define PIDMAX      0x1FFF /* maximum pid value that is valid for filtering */
 #define PIDALL      0x2000 /* special value for all pids */
@@ -236,14 +215,13 @@ struct sms1xxx_softc {
 #define DVR_OPEN    0x0001
 #define DVR_SLEEP   0x0002
 #define DVR_POLL    0x0004
-#define DVR_AWAKE   0x0008
         u32 state;
         struct mtx lock;
         struct cdev *dev;
         struct selinfo rsel;
     } dvr;
 
-#ifdef DIAGNOSTIC
+#ifdef SMS1XXX_DIAGNOSTIC
     struct sms1xxx_stats stats;
 #endif
 };

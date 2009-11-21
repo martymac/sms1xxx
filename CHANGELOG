@@ -1,3 +1,25 @@
+20091121:
+    First of all, big THANKS to Hauppauge France, who lent me
+    a French version of the WinTV Mistick HD. It has been
+    successfully tested and works with this driver !
+
+    * Added IR support (see the README file)
+    * Updated firmwares' distinfos (new firmwares available upstream)
+    * Functionnalities Sync'ed with Linux kernel 2.6.32, except :
+      - Endianness conversions (currently little-endian only)
+      - GPIO support
+      - SDIO support
+    * Bumped MAX_FILTERS (maximum active PID filters) from 16 to 32
+    * Removed useless (and buggy) initial frequency tuning
+    Additional internal changes:
+    * Handling of new SMS11xx's statistics messages
+    * DVR wakeups triggered only when DVB data received
+    * Board models handling
+    * Removed unused alignment macros
+    * Moved statistics/debug code to sms1xxx-debug.{c,h}
+    * Moved DVR init code to sms1xxx_demux_init
+    * Fixed some return values in sms1xxx-usb.c
+
 20090908:
     * Added support for 'FAMILY2' devices (SMS1102) :
         - Hauppauge WinTV MiniStick (25 years edition) works !
@@ -7,7 +29,7 @@
         - A 'distinfo' file is also available for each firmware, allowing you
           to check your files against the firmwares used for development
     * HDTV has been successfully tested
-        - Warning : only USB2.0 devices will deliver enough bandwidth, USB1.0
+        - Warning : only USB2.0 devices will deliver enough bandwidth, USB1.1
           devices will probably drop frames.
     * Fixed driver to allow using several devices at the same time
         - Moved 'mode' value to softc (also becoming a per-device sysctl)

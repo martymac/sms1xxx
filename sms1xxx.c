@@ -1,6 +1,6 @@
 /*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
- *  Copyright (C) 2008 - Ganaël Laplanche, http://contribs.martymac.com
+ *  Copyright (C) 2008-2009 - Ganaël Laplanche, http://contribs.martymac.org
  * 
  *  This driver contains code taken from the FreeBSD dvbusb driver:
  *
@@ -44,6 +44,7 @@
 #include "sms1xxx-usb.h"
 #include "sms1xxx-frontend.h"
 #include "sms1xxx-demux.h"
+#include "sms1xxx-ir.h"
 
 struct sms1xxx_frontend frontend = {
    .info = {
@@ -117,15 +118,16 @@ SYSCTL_INT(_hw_usb_sms1xxx, OID_AUTO, debug, CTLFLAG_RW,
 #endif
 
 static const struct usb_device_id sms1xxx_devs[] = {
-    /* Stellar - Siano SMS1000 adapter - USB1.1 */
+    /* Siano SMS1000 adapter - USB1.1 */
     {USB_VPI(USB_VID_SIANO, USB_PID_SIANO_SMS1000,
-        SMS1XXX_TYPE_STELLAR)},
-    /* Stellar - Siano DBM adapter - USB1.1 */
+        SMS1XXX_BOARD_SIANO_STELLAR)},
+    /* Siano DBM adapter - USB1.1 */
     {USB_VPI(USB_VID_SIANO, USB_PID_SIANO_DMB,
-        SMS1XXX_TYPE_STELLAR)},
-    /* Windham SMS1102 - WinTV MiniStick 25 Jahre Edition, Mod.1295 - USB2.0 */
-    {USB_VPI(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_MINISTICK_1295,
-        SMS1XXX_TYPE_NOVA_B)},
+        SMS1XXX_BOARD_SIANO_STELLAR)},
+    /* Hauppauge WinTV MiniStick 25 Jahre Edition (1295), SMS1102, USB2.0 */
+    /* Hauppauge WinTV MiniStick HD (1245), SMS1102, USB2.0 */
+    {USB_VPI(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_MINISTICK,
+        SMS1XXX_BOARD_HAUPPAUGE_WINDHAM)},
 };
 
 static device_probe_t sms1xxx_probe;
@@ -189,6 +191,7 @@ sms1xxx_attach(device_t self)
     sc->usbrefs = 0;
     sc->mode = DEVICE_MODE_NONE;
     sc->dlg_status = 0;
+    sc->ir.module_started = 0;
 
     if(!sc->device->fw_loading) {
         /* Cold device detected, firmware load necessary */
@@ -255,24 +258,37 @@ sms1xxx_attach(device_t self)
     sms1xxx_usb_getversion(sc);
 #endif
 
-    /* XXX Fully initialize the device as the official
-       driver seems to do. May not be necessary */
+    /* Set up mode, start demuxer and frontend */
     sms1xxx_usb_initdevice(sc, sc->mode);
-    sms1xxx_usb_setfrequency(sc,
-        sc->device->frontend->info.frequency_min,BANDWIDTH_7_MHZ);
-
-    sms1xxx_demux_init(sc);
+    if(sms1xxx_demux_init(sc)) {
+        ERR("could not start demuxer\n");
+        sc->sc_dying = 1;
+        sc->mode = DEVICE_MODE_NONE;
+        sms1xxx_usb_xfers_stop(sc);
+        sms1xxx_usb_exit(sc);
+        mtx_destroy(&sc->sc_mtx);
+        return (ENXIO);
+    }
     sms1xxx_frontend_init(sc);
+
+    /* Start IR module */
+    sms1xxx_ir_init(sc);
 
     INFO("device ready, mode=%d\n", sc->mode);
 
-    /* create device node and add sysctls */
+    /* Add sysctls */
     sctx = device_get_sysctl_ctx(sc->sc_dev);
     soid = device_get_sysctl_tree(sc->sc_dev);
     SYSCTL_ADD_INT(sctx, SYSCTL_CHILDREN(soid), OID_AUTO, "mode",
         CTLFLAG_RD, &sc->mode, 0,
         "Running mode (-1=NONE, 0=DVB-T, 1=DVB-H, 2=DAB/T-DMB, 4=DVB-T/BDA, "
         "5=ISDBT, 6=ISDBT/BDA)");
+    if(sc->ir.module_avail) {
+        SYSCTL_ADD_INT(sctx, SYSCTL_CHILDREN(soid), OID_AUTO,
+            "ir_module_started",
+            CTLFLAG_RD, &sc->ir.module_started, 0,
+            "IR module available and started (0=No, 1=Yes)");
+    }
 
     return (0);
 }
@@ -291,6 +307,7 @@ sms1xxx_detach(device_t self)
     sc->mode = DEVICE_MODE_NONE;
 
     if (last_mode != DEVICE_MODE_NONE) {
+        sms1xxx_ir_exit(sc);
         sms1xxx_frontend_exit(sc);
         sms1xxx_demux_exit(sc);
     }

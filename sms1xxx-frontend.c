@@ -1,6 +1,6 @@
 /*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
- *  Copyright (C) 2008 - Ganaël Laplanche, http://contribs.martymac.com
+ *  Copyright (C) 2008-2009 - Ganaël Laplanche, http://contribs.martymac.org
  *
  *  This driver contains code taken from the FreeBSD dvbusb driver:
  *
@@ -90,7 +90,9 @@ int
 sms1xxx_frontend_read_status(struct sms1xxx_softc *sc, fe_status_t *status)
 {
     TRACE(TRACE_IOCTL,"\n");
-    int err = sms1xxx_usb_getstatistics(sc);
+    int err = 0;
+    if ((sc->sc_type & SMS1XXX_FAMILY_MASK) == SMS1XXX_FAMILY1)
+        err = sms1xxx_usb_getstatistics(sc);
     if(!err) *status=sc->fe_status;
     return (err);
 }
@@ -99,8 +101,10 @@ int
 sms1xxx_frontend_read_ber(struct sms1xxx_softc *sc, u32 *ber)
 {
     TRACE(TRACE_IOCTL,"\n");
-    int err = sms1xxx_usb_getstatistics(sc);
-    if(!err) *ber=sc->fe_ber;
+    int err = 0;
+    if ((sc->sc_type & SMS1XXX_FAMILY_MASK) == SMS1XXX_FAMILY1)
+        err = sms1xxx_usb_getstatistics(sc);
+    if(!err) *ber=sc->sms_stat_dvb.ReceptionData.BER;
     return (err);
 }
 
@@ -108,8 +112,10 @@ int
 sms1xxx_frontend_read_ucblocks(struct sms1xxx_softc *sc, u32 *ucblocks)
 {
     TRACE(TRACE_IOCTL,"\n");
-    int err = sms1xxx_usb_getstatistics(sc);
-    if(!err) *ucblocks=sc->fe_unc;
+    int err = 0;
+    if ((sc->sc_type & SMS1XXX_FAMILY_MASK) == SMS1XXX_FAMILY1)
+        err = sms1xxx_usb_getstatistics(sc);
+    if(!err) *ucblocks=sc->sms_stat_dvb.ReceptionData.ErrorTSPackets;
     return (err);
 }
 
@@ -117,8 +123,17 @@ int
 sms1xxx_frontend_read_signal_strength(struct sms1xxx_softc *sc, u16 *strength)
 {
     TRACE(TRACE_IOCTL,"\n");
-    int err = sms1xxx_usb_getstatistics(sc);
-    if(!err) *strength=sc->fe_signal_strength;
+    int err = 0;
+    if ((sc->sc_type & SMS1XXX_FAMILY_MASK) == SMS1XXX_FAMILY1)
+        err = sms1xxx_usb_getstatistics(sc);
+    if(!err) {
+        if (sc->sms_stat_dvb.ReceptionData.InBandPwr < -95)
+            *strength = 0;
+        else if (sc->sms_stat_dvb.ReceptionData.InBandPwr > -29)
+            *strength = 100;
+        else
+            *strength = (sc->sms_stat_dvb.ReceptionData.InBandPwr + 95) * 3 / 2;
+    }
     return (err);
 }
 
@@ -126,8 +141,10 @@ int
 sms1xxx_frontend_read_snr(struct sms1xxx_softc *sc, u16 *snr)
 {
     TRACE(TRACE_IOCTL,"\n");
-    int err = sms1xxx_usb_getstatistics(sc);
-    if(!err) *snr=sc->fe_snr;
+    int err = 0;
+    if ((sc->sc_type & SMS1XXX_FAMILY_MASK) == SMS1XXX_FAMILY1)
+        err = sms1xxx_usb_getstatistics(sc);
+    if(!err) *snr=sc->sms_stat_dvb.ReceptionData.SNR;
     return (err);
 }
 
@@ -159,7 +176,7 @@ sms1xxx_frontend_get_tune_settings(struct sms1xxx_softc *sc,
 {
     TRACE(TRACE_IOCTL,"\n");
     tune->min_delay_ms = 400;
-    tune->step_size = 2000;
+    tune->step_size = 250000;
     tune->max_drift = 0;
     return (0);
 }

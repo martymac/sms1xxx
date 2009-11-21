@@ -10,5 +10,8 @@ http://wirbel.htpc-forum.de/w_scan/index2.html
 * dvbtools come from :
 http://sourceforge.net/projects/dvbtools
 
+* rc5watch is provided with the FreeBSD sms1xxx driver :
+http://contribs.martymac.org
+
 The conf/ directory contains French configuration files
 (for Paris). They need freq_offset set to 166000.
