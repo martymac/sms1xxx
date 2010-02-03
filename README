@@ -248,17 +248,38 @@ various actions given received key codes (see rc5exec.sh.sample).
 It might also be possible to use the 'ir0' device with LIRC, but it has not
 been tested. If you manage to make it work, please tell me :)
 
+GPIO support :
+**************
+
+GPIO (General purpose Inpout Output) brings LEDs handling as well as LNA
+(Low Noise Amplifier) support to some devices.
+
+* If LEDs handling is supported by your device, LED colors will indicate
+reception quality and device activity.
+
+You can check if your device supports LEDs handling by buildind the driver
+with debug support and check if the sysctl 'dev.sms1xxx.n.led_status' appears
+once the device is plugged in. This sysctl can be used to test LEDs by setting
+it to special values. See the sysctl's description for more details.
+
+* If LNA handling is supported, the sysctl 'dev.sms1xxx.n.use_lna' will
+appear. Setting it to 1 will make the driver turn LNA on before each tuning
+request. See the sysctl's description for more details.
+
 Links :
 *******
 
 LinuxTV website :
-http://linuxtv.org
+http://www.linuxtv.org
 
 Terratec Cinergy Piranha page on LinuxTV :
-http://linuxtv.org/wiki/index.php/TerraTec_Cinergy_Piranha
+http://www.linuxtv.org/wiki/index.php/TerraTec_Cinergy_Piranha
 
 Linux DVB API documentation :
 http://www.linuxtv.org/docs/dvbapi/Contents.html
+
+If you are looking for some additional firmwares, you can follow this post :
+http://www.linuxtv.org/pipermail/linux-dvb/2009-January/031537.html
 
 Raaf's original work for the dvbusb driver :
 http://raaf.atspace.org/dvbusb

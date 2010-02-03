@@ -1,4 +1,10 @@
-20091121:
+20100203 ('First smile'):
+    * Functionnalities Sync'ed with Linux kernel 2.6.33rc3
+    * Added GPIO support (see README)
+    * Added endianness conversions. The driver now *should*
+      work on big-endian architectures (not tested)
+
+20091121 ('Olive'):
     First of all, big THANKS to Hauppauge France, who lent me
     a French version of the WinTV Mistick HD. It has been
     successfully tested and works with this driver !
@@ -22,24 +28,26 @@
 
 20090908:
     * Added support for 'FAMILY2' devices (SMS1102) :
-        - Hauppauge WinTV MiniStick (25 years edition) works !
-        - Other models should work, just give a try
-          (and add VIDs/PIDs as necessary and send me your patches ;-))
+      - Hauppauge WinTV MiniStick (25 years edition) works !
+      - Other models should work, just give a try
+        (and add VIDs/PIDs as necessary and send me your patches ;-))
     * Firmwares have been renamed, see the firmwares/ directory
-        - A 'distinfo' file is also available for each firmware, allowing you
-          to check your files against the firmwares used for development
+      - A 'distinfo' file is also available for each firmware, allowing you
+        to check your files against the firmwares used for development
     * HDTV has been successfully tested
-        - Warning : only USB2.0 devices will deliver enough bandwidth, USB1.1
-          devices will probably drop frames.
+      - Warning : only USB2.0 devices will deliver enough bandwidth, USB1.1
+        devices will probably drop frames.
     * Fixed driver to allow using several devices at the same time
-        - Moved 'mode' value to softc (also becoming a per-device sysctl)
-        - Fixed demuxer clones' unit numbers assignment
+      - Moved 'mode' value to softc (also becoming a per-device sysctl)
+      - Fixed demuxer clones' unit numbers assignment
     * Added compile-time default values for debug and freq_offset sysctls.
-        - See SMS1XXX_DEBUG_DEFAULT_LEVEL and SMS1XXX_DEFAULT_FREQ_OFFSET
+      - See SMS1XXX_DEBUG_DEFAULT_LEVEL and SMS1XXX_DEFAULT_FREQ_OFFSET
     * Added internal data dump function for unknown packets
     * Added device info dump for FAMILY2 devices when debugging is active
+
 20090712:
     * Use internal xfer's frame buffer instead of copying data during RX cb
+
 20090711:
     * Converted code to use the new USB2 stack (FreeBSD 8.x)
     * Removed set/getbufs IOCTLS
@@ -51,9 +59,12 @@ vvv Older versions (FreeBSD 7.x) vvv
 20090601:
 	* Sync'ed Linux headers with Linux kernel 2.6.29
 	* Fixed includes and added a fake linux/types.h
+
 20090331:
     * Merged fe_unc handling from Linux kernel 2.6.29
+
 20081203:
     * 3rd-party apps updated
+
 20081122:
-	* Initial version
+    * Initial version

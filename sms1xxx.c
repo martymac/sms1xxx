@@ -1,15 +1,17 @@
 /*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
- *  Copyright (C) 2008-2009 - Ganaël Laplanche, http://contribs.martymac.org
- * 
+ *  Copyright (C) 2008-2010, Ganaël Laplanche, http://contribs.martymac.org
+ *
  *  This driver contains code taken from the FreeBSD dvbusb driver:
  *
- *  Copyright (C) 2006 - 2007 Raaf
- *  Copyright (C) 2004 - 2006 Patrick Boettcher
+ *  Copyright (C) 2006-2007, Raaf
+ *  Copyright (C) 2004-2006, Patrick Boettcher
  *
  *  This driver contains code taken from the Linux siano driver:
  *
- *  Copyright (c), 2005-2008 Siano Mobile Silicon, Inc.
+ *  Siano Mobile Silicon, Inc.
+ *  MDTV receiver kernel modules.
+ *  Copyright (C) 2006-2009, Uri Shkolnik
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -90,6 +92,29 @@ sms1xxx_pid_filter(struct sms1xxx_softc *sc, u16 pid, int onoff)
 
     return (err);
 }
+
+#ifdef SMS1XXX_DEBUG
+static int
+sms1xxx_sysctl_led_status(SYSCTL_HANDLER_ARGS)
+{
+    int err = 0;
+    int led_status = SMS_LED_OFF;
+
+    struct sms1xxx_softc *sc = device_get_softc(oidp->oid_arg1);
+    if (sc == NULL)
+        return (EINVAL);
+
+    err = sysctl_handle_int(oidp, &led_status, 0, req);
+
+    if (err != 0 || req->newptr == NULL)
+        return (err);
+
+    sms1xxx_gpio_power_led_feedback(sc, led_status);
+    sms1xxx_gpio_status_led_feedback(sc, led_status);
+
+    return (0);
+}
+#endif
 
 struct sms1xxx_device sms1xxx = {
     .requested_mode = DEVICE_MODE_DEFAULT,
@@ -274,6 +299,9 @@ sms1xxx_attach(device_t self)
     /* Start IR module */
     sms1xxx_ir_init(sc);
 
+    /* Initialize GPIO */
+    sms1xxx_gpio_init(sc);
+
     INFO("device ready, mode=%d\n", sc->mode);
 
     /* Add sysctls */
@@ -289,6 +317,24 @@ sms1xxx_attach(device_t self)
             CTLFLAG_RD, &sc->ir.module_started, 0,
             "IR module available and started (0=No, 1=Yes)");
     }
+    if(sc->gpio.lna_ctrl != SMS_GPIO_PIN_UNDEF) {
+        SYSCTL_ADD_INT(sctx, SYSCTL_CHILDREN(soid), OID_AUTO,
+            "use_lna",
+            CTLFLAG_RW, &sc->gpio.use_lna, 0,
+            "Use LNA when tuning (0=No, 1=Yes, 2=Force off)");
+    }
+#ifdef SMS1XXX_DEBUG
+    if((sc->gpio.led_lo != SMS_GPIO_PIN_UNDEF) &&
+        (sc->gpio.led_hi != SMS_GPIO_PIN_UNDEF) &&
+        (sc->gpio.led_power != SMS_GPIO_PIN_UNDEF)) {
+        SYSCTL_ADD_PROC(sctx, SYSCTL_CHILDREN(soid), OID_AUTO,
+            "led_status",
+            CTLTYPE_INT | CTLFLAG_RW, sc->sc_dev, sizeof(sc->sc_dev),
+            sms1xxx_sysctl_led_status, "I",
+            "Set LED status (or-able, Off=0, Low=1, High=2, Power=4)");
+            /* SMS_LED_OFF,SMS_LED_LO,SMS_LED_HI,SMS_LED_PW */
+    }
+#endif
 
     return (0);
 }
@@ -307,6 +353,7 @@ sms1xxx_detach(device_t self)
     sc->mode = DEVICE_MODE_NONE;
 
     if (last_mode != DEVICE_MODE_NONE) {
+        sms1xxx_gpio_exit(sc);
         sms1xxx_ir_exit(sc);
         sms1xxx_frontend_exit(sc);
         sms1xxx_demux_exit(sc);

@@ -1,15 +1,17 @@
 /*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
- *  Copyright (C) 2008-2009 - Ganaël Laplanche, http://contribs.martymac.org
+ *  Copyright (C) 2008-2010, Ganaël Laplanche, http://contribs.martymac.org
  *
  *  This driver contains code taken from the FreeBSD dvbusb driver:
  *
- *  Copyright (C) 2006 - 2007 Raaf
- *  Copyright (C) 2004 - 2006 Patrick Boettcher
+ *  Copyright (C) 2006-2007, Raaf
+ *  Copyright (C) 2004-2006, Patrick Boettcher
  *
  *  This driver contains code taken from the Linux siano driver:
  *
- *  Copyright (c), 2005-2008 Siano Mobile Silicon, Inc.
+ *  Siano Mobile Silicon, Inc.
+ *  MDTV receiver kernel modules.
+ *  Copyright (C) 2006-2009, Uri Shkolnik
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -38,6 +40,8 @@
 #include "sms1xxx-usb.h"
 #include "sms1xxx-demux.h"
 #include "sms1xxx-firmware.h"
+#include "sms1xxx-endian.h"
+#include "sms1xxx-gpio.h"
 
 static void sms1xxx_usb_tx_cb(struct usb_xfer *, usb_error_t);
 static void sms1xxx_usb_rx_cb(struct usb_xfer *, usb_error_t);
@@ -146,6 +150,7 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
     }
 
     struct SmsMsgHdr_ST *phdr = (struct SmsMsgHdr_ST *)packet;
+    sms1xxx_endian_handle_message_header(phdr);
 
     TRACE(TRACE_USB_FLOW,"got %d bytes "
         "(msgLength=%d, msgType=%d, msgFlags=%d)\n",
@@ -182,6 +187,8 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
         if (sc->mode == DEVICE_MODE_DVBT_BDA)
             phdr->msgDstId = DVBT_BDA_CONTROL_MSG_ID;
     }
+
+    sms1xxx_endian_handle_rx_message(phdr);
 
     switch (phdr->msgType) {
         case MSG_SMS_DVBT_BDA_DATA:
@@ -399,6 +406,26 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
                 (const u8 *)((u8 *)phdr + sizeof(struct SmsMsgHdr_ST)),
                 (u32)phdr->msgLength - sizeof(struct SmsMsgHdr_ST));
             break;
+        case MSG_SMS_GPIO_CONFIG_RES:
+            TRACE(TRACE_USB_FLOW, "handling MSG_SMS_GPIO_CONFIG_RES\n");
+            DLG_COMPLETE(sc->dlg_status, DLG_GPIO_CONFIG_DONE);
+            break;
+        case MSG_SMS_GPIO_CONFIG_EX_RES:
+            TRACE(TRACE_USB_FLOW, "handling MSG_SMS_GPIO_CONFIG_EX_RES\n");
+            DLG_COMPLETE(sc->dlg_status, DLG_GPIO_CONFIG_DONE);
+            break;
+        case MSG_SMS_GPIO_SET_LEVEL_RES:
+            TRACE(TRACE_USB_FLOW, "handling MSG_SMS_GPIO_SET_LEVEL_RES\n");
+            DLG_COMPLETE(sc->dlg_status, DLG_GPIO_SET_DONE);
+            break;
+        case MSG_SMS_GPIO_GET_LEVEL_RES:
+            {
+                TRACE(TRACE_USB_FLOW, "handling MSG_SMS_GPIO_GET_LEVEL_RES\n");
+                u32 *msgdata = (u32 *)phdr;
+                sc->gpio.get_res = msgdata[1];
+                DLG_COMPLETE(sc->dlg_status, DLG_GPIO_GET_DONE);
+                break;
+            }
         default:
             TRACE(TRACE_USB_FLOW,"unhandled msg type (%d)\n", phdr->msgType);
 #ifdef SMS1XXX_DEBUG
@@ -570,7 +597,7 @@ sms1xxx_usb_xfers_stop(struct sms1xxx_softc *sc)
 
 /* Write data to the device */
 int
-sms1xxx_usb_write(struct sms1xxx_softc *sc, const u8 *wbuf, u32 wlen)
+sms1xxx_usb_rawwrite(struct sms1xxx_softc *sc, const u8 *wbuf, u32 wlen)
 {
     int offset, bsize;
     struct sms1xxx_data *data;
@@ -610,11 +637,22 @@ sms1xxx_usb_write(struct sms1xxx_softc *sc, const u8 *wbuf, u32 wlen)
     return (0);
 }
 
+/* Write data to the device, handling endianness conversions */
+int
+sms1xxx_usb_write(struct sms1xxx_softc *sc, u8 *wbuf, u32 wlen)
+{
+    TRACE(TRACE_USB_FLOW,"\n");
+
+    sms1xxx_endian_handle_message_header(wbuf);
+    return (sms1xxx_usb_rawwrite(sc, (const u8 *)wbuf, wlen));
+}
+
+
 /* Wait for a response from the device
    XXX To be improved */
 static int
 sms1xxx_usb_wait(struct sms1xxx_softc *sc,
-    unsigned char completion, unsigned int delay_ms)
+    u16 completion, unsigned int delay_ms)
 {
     struct timeval tv_start;
     struct timeval tv;
@@ -644,8 +682,8 @@ sms1xxx_usb_wait(struct sms1xxx_softc *sc,
 
 /* Write data to the device and wait for a response */
 int
-sms1xxx_usb_write_and_wait(struct sms1xxx_softc *sc, const u8 *wbuf,
-    u32 wlen, unsigned char completion, unsigned int delay_ms)
+sms1xxx_usb_rawwrite_and_wait(struct sms1xxx_softc *sc, const u8 *wbuf,
+    u32 wlen, u16 completion, unsigned int delay_ms)
 {
     int err = 0;
 
@@ -653,7 +691,7 @@ sms1xxx_usb_write_and_wait(struct sms1xxx_softc *sc, const u8 *wbuf,
         completion,delay_ms);
 
     DLG_INIT(sc->dlg_status, completion);
-    err = sms1xxx_usb_write(sc, wbuf, wlen);
+    err = sms1xxx_usb_rawwrite(sc, wbuf, wlen);
     if (err == 0) {
         err = sms1xxx_usb_wait(sc, completion, delay_ms);
     }
@@ -662,6 +700,19 @@ sms1xxx_usb_write_and_wait(struct sms1xxx_softc *sc, const u8 *wbuf,
         completion,err);
 
     return (err);
+}
+
+/* Write data to the device and wait for a response,
+   handling endianness conversions */
+int
+sms1xxx_usb_write_and_wait(struct sms1xxx_softc *sc, u8 *wbuf,
+    u32 wlen, u16 completion, unsigned int delay_ms)
+{
+    TRACE(TRACE_USB_FLOW,"\n");
+
+    sms1xxx_endian_handle_message_header(wbuf);
+    return (sms1xxx_usb_rawwrite_and_wait(sc, (const u8 *)wbuf,
+        wlen, completion, delay_ms));
 }
 
 /***************************
@@ -786,6 +837,7 @@ sms1xxx_usb_swdtrigger(struct sms1xxx_softc *sc, u32 start_address)
     TriggerMsg->msgData[3] = 0;             /* Parameter */
     TriggerMsg->msgData[4] = 4;             /* Task ID */
 
+    sms1xxx_endian_handle_tx_message(TriggerMsg);
     /* XXX honour SMS_ROM_NO_RESPONSE and use sms1xxx_usb_write() ? */
     err = sms1xxx_usb_write_and_wait(sc, (u8*)TriggerMsg,
         msgSize, DLG_SWDOWNLOAD_TRIGGER_DONE, FRONTEND_TIMEOUT);
@@ -889,6 +941,18 @@ sms1xxx_usb_setfrequency(struct sms1xxx_softc *sc, u32 frequency,
     }
     Msg.Data[2] = 12000000;
 
+    /* Try to enable LNA first, if requested (and supported) */
+    if(sc->gpio.use_lna != 0) {
+        /* Enable LNA */
+        if(sc->gpio.use_lna == 1)
+            sms1xxx_gpio_lna_control(sc, 1);
+        /* Explicitly disable LNA */
+        else if(sc->gpio.use_lna == 2)
+            sms1xxx_gpio_lna_control(sc, 0);
+    }
+
+    /* see cmcdvb.c, called via smsdvb_sendrequest_and_wait() */
+    sms1xxx_endian_handle_tx_message(&Msg);
     return (sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),
         DLG_TUNE_DONE, FRONTEND_TIMEOUT));
 }
@@ -913,6 +977,7 @@ sms1xxx_usb_add_pid(struct sms1xxx_softc *sc, u16 pid)
     PidMsg.xMsgHeader.msgFlags = 0;
     PidMsg.msgData[0] = pid;
 
+    sms1xxx_endian_handle_tx_message(&PidMsg);
     return (sms1xxx_usb_write_and_wait(sc, (u8*)&PidMsg, sizeof(PidMsg),
         DLG_PID_DONE, FRONTEND_TIMEOUT));
 }
@@ -937,9 +1002,14 @@ sms1xxx_usb_remove_pid(struct sms1xxx_softc *sc, u16 pid)
     PidMsg.xMsgHeader.msgFlags = 0;
     PidMsg.msgData[0] = pid;
 
+    sms1xxx_endian_handle_tx_message(&PidMsg);
     return (sms1xxx_usb_write_and_wait(sc, (u8*)&PidMsg, sizeof(PidMsg),
         DLG_PID_DONE, FRONTEND_TIMEOUT));
 }
+
+/************
+ * Infrared *
+ ************/
 
 /* Start IR module */
 int
@@ -956,6 +1026,128 @@ sms1xxx_usb_ir_start(struct sms1xxx_softc *sc)
     Msg.msgData[0] = sc->ir.controller;
     Msg.msgData[1] = sc->ir.timeout;
 
+    sms1xxx_endian_handle_tx_message(&Msg);
     return (sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),
         DLG_IR_DONE, FRONTEND_TIMEOUT));
+}
+
+/********
+ * GPIO *
+ ********/
+
+/* Configure GPIO */
+int
+sms1xxx_usb_gpio_configure(struct sms1xxx_softc *sc, u32 pin_num,
+    struct sms1xxx_gpio_config *gpio_config)
+{
+    TRACE(TRACE_USB,"pin_num=%d\n", pin_num);
+
+    u32 Translatedpin_num = 0;
+    u32 GroupNum = 0;
+    u32 ElectricChar;
+    u32 groupCfg;
+
+    struct SetGpioMsg {
+        struct SmsMsgHdr_ST xMsgHeader;
+        u32 msgData[6];
+    } Msg;
+
+    if (pin_num > MAX_GPIO_PIN_NUMBER)
+        return (EINVAL);
+
+    if (gpio_config == NULL)
+        return (EINVAL);
+
+    Msg.xMsgHeader.msgSrcId = DVBT_BDA_CONTROL_MSG_ID;
+    Msg.xMsgHeader.msgDstId = HIF_TASK;
+    Msg.xMsgHeader.msgFlags = 0;
+    Msg.xMsgHeader.msgLength = (u16) sizeof(struct SetGpioMsg);
+    Msg.msgData[0] = pin_num;
+
+    if ((sc->sc_type & SMS1XXX_FAMILY_MASK) != SMS1XXX_FAMILY2) {
+        Msg.xMsgHeader.msgType = MSG_SMS_GPIO_CONFIG_REQ;
+        if (sms1xxx_gpio_get_pin_params(pin_num, &Translatedpin_num,
+            &GroupNum, &groupCfg) != 0)
+            return (EINVAL);
+
+        Msg.msgData[1] = Translatedpin_num;
+        Msg.msgData[2] = GroupNum;
+        ElectricChar = (gpio_config->PullUpDown)
+            | (gpio_config->InputCharacteristics << 2)
+            | (gpio_config->OutputSlewRate << 3)
+            | (gpio_config->OutputDriving << 4);
+        Msg.msgData[3] = ElectricChar;
+        Msg.msgData[4] = gpio_config->Direction;
+        Msg.msgData[5] = groupCfg;
+    } else {
+        Msg.xMsgHeader.msgType = MSG_SMS_GPIO_CONFIG_EX_REQ;
+        Msg.msgData[1] = gpio_config->PullUpDown;
+        Msg.msgData[2] = gpio_config->OutputSlewRate;
+        Msg.msgData[3] = gpio_config->OutputDriving;
+        Msg.msgData[4] = gpio_config->Direction;
+        Msg.msgData[5] = 0;
+    }
+
+    sms1xxx_endian_handle_tx_message(&Msg);
+    return (sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),
+        DLG_GPIO_CONFIG_DONE, FRONTEND_TIMEOUT));
+}
+
+/* Set GPIO pin level */
+int
+sms1xxx_usb_gpio_set_level(struct sms1xxx_softc *sc, u8 pin_num, u8 new_level) {
+    TRACE(TRACE_USB, "pin_num=%d, new_level=%d\n", pin_num, new_level);
+
+    struct SetGpioMsg {
+        struct SmsMsgHdr_ST xMsgHeader;
+        u32 msgData[3]; /* keep it 3 ! */
+    } Msg;
+
+    if ((new_level > 1) || (pin_num > MAX_GPIO_PIN_NUMBER) ||
+        (pin_num > MAX_GPIO_PIN_NUMBER))
+        return (EINVAL);
+
+    Msg.xMsgHeader.msgSrcId = DVBT_BDA_CONTROL_MSG_ID;
+    Msg.xMsgHeader.msgDstId = HIF_TASK;
+    Msg.xMsgHeader.msgFlags = 0;
+    Msg.xMsgHeader.msgType = MSG_SMS_GPIO_SET_LEVEL_REQ;
+    Msg.xMsgHeader.msgLength = (u16) sizeof(struct SetGpioMsg);
+    Msg.msgData[0] = pin_num;
+    Msg.msgData[1] = new_level;
+
+    sms1xxx_endian_handle_tx_message(&Msg);
+    return (sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),
+        DLG_GPIO_SET_DONE, FRONTEND_TIMEOUT));
+}
+
+/* Get GPIO pin level */
+int
+sms1xxx_usb_gpio_get_level(struct sms1xxx_softc *sc, u8 pin_num,
+    u8 *level) {
+    TRACE(TRACE_USB, "pin_num=%d\n", pin_num);
+
+    int rc = 0;
+
+    struct SetGpioMsg {
+        struct SmsMsgHdr_ST xMsgHeader;
+        u32 msgData[2];
+    } Msg;
+
+    if (pin_num > MAX_GPIO_PIN_NUMBER)
+        return (EINVAL);
+
+    Msg.xMsgHeader.msgSrcId = DVBT_BDA_CONTROL_MSG_ID;
+    Msg.xMsgHeader.msgDstId = HIF_TASK;
+    Msg.xMsgHeader.msgFlags = 0;
+    Msg.xMsgHeader.msgType = MSG_SMS_GPIO_GET_LEVEL_REQ;
+    Msg.xMsgHeader.msgLength = (u16) sizeof(struct SetGpioMsg);
+    Msg.msgData[0] = pin_num;
+    Msg.msgData[1] = 0;
+
+    sms1xxx_endian_handle_tx_message(&Msg);
+    rc = sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),
+        DLG_GPIO_GET_DONE, FRONTEND_TIMEOUT);
+
+    *level = sc->gpio.get_res; /* XXX implicit cast (u8)sc->gpio_get_res */
+    return (rc);
 }

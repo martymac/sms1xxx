@@ -1,15 +1,17 @@
 /*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
- *  Copyright (C) 2008-2009 - Ganaël Laplanche, http://contribs.martymac.org
+ *  Copyright (C) 2008-2010, Ganaël Laplanche, http://contribs.martymac.org
  *
  *  This driver contains code taken from the FreeBSD dvbusb driver:
  *
- *  Copyright (C) 2006 - 2007 Raaf
- *  Copyright (C) 2004 - 2006 Patrick Boettcher
+ *  Copyright (C) 2006-2007, Raaf
+ *  Copyright (C) 2004-2006, Patrick Boettcher
  *
  *  This driver contains code taken from the Linux siano driver:
  *
- *  Copyright (c), 2005-2008 Siano Mobile Silicon, Inc.
+ *  Siano Mobile Silicon, Inc.
+ *  MDTV receiver kernel modules.
+ *  Copyright (C) 2006-2009, Uri Shkolnik
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -34,6 +36,9 @@
 #include <sys/systm.h>
 #include <sys/linker.h>
 #include <sys/firmware.h>
+
+/* le..toh(9) stuff */
+#include <sys/endian.h>
 
 #include "sms1xxx.h"
 #include "sms1xxx-coreapi.h"
@@ -71,7 +76,7 @@ static char *sms1xxx_firmwares
 /* NOVA_B */
     { "novab0_dvbbda.fw",      /* DVBT */
       "novab0_dvbbda.fw",      /* DVBH */
-      "",                      /* DAB_TDMB */
+      "novab0_tdmb.fw",        /* DAB_TDMB */
       "",                      /* DAB_TDMB_DABIP */
       "novab0_dvbbda.fw",      /* DVBT_BDA */
       "novab0_isdbtbda.fw",    /* DEVICE_MODE_ISDBT */
@@ -118,7 +123,7 @@ sms1xxx_firmware_load_family1(struct sms1xxx_softc *sc, const u8 *data,
         return (EINVAL);
 
     TRACE(TRACE_FIRMWARE, "data=%p, datasize=%d\n", data, datasize);
-    return sms1xxx_usb_write(sc, data, datasize);
+    return sms1xxx_usb_rawwrite(sc, data, datasize);
 }
 
 /* Load a firmware to the device using
@@ -136,7 +141,7 @@ sms1xxx_firmware_load_family2(struct sms1xxx_softc *sc, const u8 *data,
     TRACE(TRACE_FIRMWARE, "data=%p, datasize=%d\n", data, datasize);
 
     const struct SmsFirmware_ST *firmware = (const struct SmsFirmware_ST *)data;
-    u32 mem_address = firmware->StartAddress;
+    u32 mem_address = le32toh(firmware->StartAddress);
     const u8 *payload = firmware->Payload;
     int err = 0;
 

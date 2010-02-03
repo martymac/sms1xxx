@@ -1,15 +1,17 @@
 /*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
- *  Copyright (C) 2008-2009 - Ganaël Laplanche, http://contribs.martymac.org
+ *  Copyright (C) 2008-2010, Ganaël Laplanche, http://contribs.martymac.org
  *
  *  This driver contains code taken from the FreeBSD dvbusb driver:
  *
- *  Copyright (C) 2006 - 2007 Raaf
- *  Copyright (C) 2004 - 2006 Patrick Boettcher
+ *  Copyright (C) 2006-2007, Raaf
+ *  Copyright (C) 2004-2006, Patrick Boettcher
  *
  *  This driver contains code taken from the Linux siano driver:
  *
- *  Copyright (c), 2005-2008 Siano Mobile Silicon, Inc.
+ *  Siano Mobile Silicon, Inc.
+ *  MDTV receiver kernel modules.
+ *  Copyright (C) 2006-2009, Uri Shkolnik
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -51,6 +53,7 @@
 #include "sms1xxx-coreapi.h"
 #include "sms1xxx-debug.h"
 #include "sms1xxx-ir.h"
+#include "sms1xxx-gpio.h"
 
 /* Linux stuff */
 #include "linux/dvb/frontend.h"
@@ -123,15 +126,18 @@ struct sms1xxx_softc {
                                         xfer's frame buffer */
 
     /* State */
-    u8  sc_iface_index;           /* current interface */
-    unsigned long sc_type;        /* interface type */
-    int sc_dying;                 /* is sc dying ? */
-    int usbinit;                  /* USB already initialized */
-    int usbrefs;                  /* frontend & demux references */
-    int mode;                     /* current mode */
+    u8  sc_iface_index;              /* current interface */
+    unsigned long sc_type;           /* interface type */
+    int sc_dying;                    /* is sc dying ? */
+    int usbinit;                     /* USB already initialized */
+    int usbrefs;                     /* frontend & demux references */
+    int mode;                        /* current mode */
 
     /* IR */
-    struct sms1xxx_ir ir;         /* infrared state and data */
+    struct sms1xxx_ir ir;            /* infrared (IR) state and data */
+
+    /* GPIO */
+    struct sms1xxx_gpio gpio;        /* GPIO state and data */
 
     /* Dialog synchronization helpers */
 #define FRONTEND_TIMEOUT                2500 /* timeout (msec) for frontend
@@ -139,15 +145,18 @@ struct sms1xxx_softc {
 #define DLG_INIT(status, value)         ((status) &= ~(value))
 #define DLG_COMPLETE(status, value)     ((status) |= (value))
 #define DLG_ISCOMPLETE(status, value)   ((status) & (value))
-#define DLG_STAT_DONE                   0x01 /* get statistics operation */
-#define DLG_TUNE_DONE                   0x02 /* tuning operation */
-#define DLG_PID_DONE                    0x04 /* pid operations */
-#define DLG_INIT_DONE                   0x08 /*  (init) */
-#define DLG_RELOAD_START_DONE           0x10 /* firmware upload (init) */
-#define DLG_DATA_DOWNLOAD_DONE          0x20 /* firmware upload */
-#define DLG_SWDOWNLOAD_TRIGGER_DONE     0x40 /* firmware upload (start) */
-#define DLG_IR_DONE                     0x80 /* IR module start */
-    char dlg_status;
+#define DLG_STAT_DONE                   0x0001 /* get statistics operation */
+#define DLG_TUNE_DONE                   0x0002 /* tuning operation */
+#define DLG_PID_DONE                    0x0004 /* pid operations */
+#define DLG_INIT_DONE                   0x0008 /*  (init) */
+#define DLG_RELOAD_START_DONE           0x0010 /* firmware upload (init) */
+#define DLG_DATA_DOWNLOAD_DONE          0x0020 /* firmware upload */
+#define DLG_SWDOWNLOAD_TRIGGER_DONE     0x0040 /* firmware upload (start) */
+#define DLG_IR_DONE                     0x0080 /* IR module start */
+#define DLG_GPIO_CONFIG_DONE            0x0100 /* GPIO configuration done */
+#define DLG_GPIO_SET_DONE               0x0200 /* GPIO set done */
+#define DLG_GPIO_GET_DONE               0x0400 /* GPIO get done */
+    u16 dlg_status;
 
     /* Frontend */
     struct cdev *frontenddev;

@@ -1,15 +1,17 @@
 /*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
- *  Copyright (C) 2008-2009 - Ganaël Laplanche, http://contribs.martymac.org
+ *  Copyright (C) 2008-2010, Ganaël Laplanche, http://contribs.martymac.org
  *
  *  This driver contains code taken from the FreeBSD dvbusb driver:
  *
- *  Copyright (C) 2006 - 2007 Raaf
- *  Copyright (C) 2004 - 2006 Patrick Boettcher
+ *  Copyright (C) 2006-2007, Raaf
+ *  Copyright (C) 2004-2006, Patrick Boettcher
  *
  *  This driver contains code taken from the Linux siano driver:
  *
- *  Copyright (c), 2005-2008 Siano Mobile Silicon, Inc.
+ *  Siano Mobile Silicon, Inc.
+ *  MDTV receiver kernel modules.
+ *  Copyright (C) 2006-2009, Uri Shkolnik
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -62,23 +64,19 @@ typedef boolean_t   bool;
 #define SMS1XXX_BOARD_MASK                  0x0000ff00UL
 #define SMS1XXX_BOARD_UNKNOWN              (0x00000000UL | SMS1XXX_TYPE_STELLAR)
 #define SMS1XXX_BOARD_SIANO_STELLAR        (0x00000100UL | SMS1XXX_TYPE_STELLAR)
-#if 0
 #define SMS1XXX_BOARD_SIANO_NOVA_A         (0x00000200UL | SMS1XXX_TYPE_NOVA_A)
 #define SMS1XXX_BOARD_SIANO_NOVA_B         (0x00000300UL | SMS1XXX_TYPE_NOVA_B)
 #define SMS1XXX_BOARD_SIANO_VEGA           (0x00000400UL | SMS1XXX_TYPE_VEGA)
 #define SMS1XXX_BOARD_HAUPPAUGE_CATAMOUNT  (0x00000500UL | SMS1XXX_TYPE_STELLAR)
 #define SMS1XXX_BOARD_HAUPPAUGE_OKEMO_A    (0x00000600UL | SMS1XXX_TYPE_NOVA_A)
 #define SMS1XXX_BOARD_HAUPPAUGE_OKEMO_B    (0x00000700UL | SMS1XXX_TYPE_NOVA_B)
-#endif
 #define SMS1XXX_BOARD_HAUPPAUGE_WINDHAM    (0x00000800UL | SMS1XXX_TYPE_NOVA_B)
-#if 0
 #define SMS1XXX_BOARD_HAUPPAUGE_TIGER_MINICARD \
                                            (0x00000900UL | SMS1XXX_TYPE_NOVA_B)
 #define SMS1XXX_BOARD_HAUPPAUGE_TIGER_MINICARD_R2 \
                                            (0x00000a00UL | SMS1XXX_TYPE_NOVA_B)
 #define SMS1XXX_BOARD_SIANO_NICE           (0x00000b00UL | SMS1XXX_TYPE_NOVA_B)
 #define SMS1XXX_BOARD_SIANO_VENICE         (0x00000c00UL | SMS1XXX_TYPE_VEGA)
-#endif
 
 /* Vendor IDs */
 #define USB_VID_SIANO                      0x187f
@@ -145,6 +143,12 @@ typedef STAILQ_HEAD(, sms1xxx_data) sms1xxx_datahead;
 #define HIF_TASK                            11
 #define DVBT_BDA_CONTROL_MSG_ID             201
 
+#define MSG_SMS_GPIO_CONFIG_REQ             507
+#define MSG_SMS_GPIO_CONFIG_RES             508
+#define MSG_SMS_GPIO_SET_LEVEL_REQ          509
+#define MSG_SMS_GPIO_SET_LEVEL_RES          510
+#define MSG_SMS_GPIO_GET_LEVEL_REQ          511
+#define MSG_SMS_GPIO_GET_LEVEL_RES          512
 #define MSG_SMS_RF_TUNE_REQ                 561
 #define MSG_SMS_RF_TUNE_RES                 562
 #define MSG_SMS_INIT_DEVICE_REQ             578
@@ -170,6 +174,8 @@ typedef STAILQ_HEAD(, sms1xxx_data) sms1xxx_datahead;
 #define MSG_SW_RELOAD_START_RES             703
 #define MSG_SW_RELOAD_EXEC_REQ              704
 #define MSG_SW_RELOAD_EXEC_RES              705
+#define MSG_SMS_GPIO_CONFIG_EX_REQ          712
+#define MSG_SMS_GPIO_CONFIG_EX_RES          713
 #define MSG_SMS_TRANSMISSION_IND            782
 #define MSG_SMS_START_IR_REQ                800
 #define MSG_SMS_START_IR_RES                801

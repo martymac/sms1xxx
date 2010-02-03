@@ -1,15 +1,17 @@
 /*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
- *  Copyright (C) 2008-2009 - Ganaël Laplanche, http://contribs.martymac.org
+ *  Copyright (C) 2008-2010, Ganaël Laplanche, http://contribs.martymac.org
  *
  *  This driver contains code taken from the FreeBSD dvbusb driver:
  *
- *  Copyright (C) 2006 - 2007 Raaf
- *  Copyright (C) 2004 - 2006 Patrick Boettcher
+ *  Copyright (C) 2006-2007, Raaf
+ *  Copyright (C) 2004-2006, Patrick Boettcher
  *
  *  This driver contains code taken from the Linux siano driver:
  *
- *  Copyright (c), 2005-2008 Siano Mobile Silicon, Inc.
+ *  Siano Mobile Silicon, Inc.
+ *  MDTV receiver kernel modules.
+ *  Copyright (C) 2006-2009, Uri Shkolnik
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -106,7 +108,7 @@ sms1xxx_ir_close(struct cdev *dev, int flag, int mode, struct thread *p)
 static inline int
 sms1xxx_ir_get_data(struct sms1xxx_softc *sc, struct uio *uio)
 {
-    TRACE(TRACE_IR,"wants %zu bytes, ravail = %u, roff = %u\n",
+    TRACE(TRACE_IR,"wants %zu bytes, ravail=%u, roff=%u\n",
         uio->uio_resid, sc->ir.ravail, sc->ir.roff);
 
     int err = 0;
@@ -174,10 +176,6 @@ sms1xxx_ir_read(struct cdev *dev, struct uio *uio, int flag)
     return (-err);
 }
 
-/*************************
- *** Public functions ***
- *************************/
-
 /* Set board-specific IR options */
 static void
 sms1xxx_ir_config(struct sms1xxx_softc *sc)
@@ -201,6 +199,10 @@ sms1xxx_ir_config(struct sms1xxx_softc *sc)
     }
     return;
 }
+
+/*************************
+ *** Public functions ***
+ *************************/
 
 /* Start IR module */
 int
@@ -287,7 +289,7 @@ sms1xxx_ir_exit(struct sms1xxx_softc *sc)
 int
 sms1xxx_ir_put_packet(struct sms1xxx_softc *sc, const u8 *p, u32 len)
 {
-    TRACE(TRACE_IR,"received %d bytes, wavail = %u, woff = %u\n",
+    TRACE(TRACE_IR,"received %d bytes, wavail=%u, woff=%u\n",
         len, sc->ir.wavail, sc->ir.woff);
 
 #ifdef SMS1XXX_DEBUG

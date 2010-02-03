@@ -1,15 +1,17 @@
 /*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
- *  Copyright (C) 2008-2009 - Ganaël Laplanche, http://contribs.martymac.org
+ *  Copyright (C) 2008-2010, Ganaël Laplanche, http://contribs.martymac.org
  *
  *  This driver contains code taken from the FreeBSD dvbusb driver:
  *
- *  Copyright (C) 2006 - 2007 Raaf
- *  Copyright (C) 2004 - 2006 Patrick Boettcher
+ *  Copyright (C) 2006-2007, Raaf
+ *  Copyright (C) 2004-2006, Patrick Boettcher
  *
  *  This driver contains code taken from the Linux siano driver:
  *
- *  Copyright (c), 2005-2008 Siano Mobile Silicon, Inc.
+ *  Siano Mobile Silicon, Inc.
+ *  MDTV receiver kernel modules.
+ *  Copyright (C) 2006-2009, Uri Shkolnik
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -51,9 +53,9 @@
 /* Linux stuff */
 #include "linux/dvb/dmx.h"
 
-/*******
- * Dvr *
- *******/
+/********************************
+ * Dvr (private functions only) *
+ ********************************/
 
 static d_open_t  sms1xxx_dvr_open;
 static d_close_t sms1xxx_dvr_close;
@@ -269,213 +271,6 @@ sms1xxx_demux_sectbuf_reset(struct sms1xxx_softc *sc,
 static void
 sms1xxx_demux_clone(void *arg, struct ucred *cred, char *name,
     int namelen, struct cdev **dev);
-
-/****************************
- * Demuxer public functions *
- ****************************/
-
-/* Called from attach */
-int
-sms1xxx_demux_init(struct sms1xxx_softc *sc)
-{
-    /* Mutexes */
-    mtx_init(&sc->dvr.lock, "DVB Dvr lock", NULL, MTX_DEF);
-    mtx_init(&sc->filterlock, "DVB Filter lock", NULL, MTX_DEF);
-
-    /* DVR */
-    sc->dvr.threshold = THRESHOLD;
-    sc->dvr.size = DVRBUFSIZE;
-    sc->dvr.buf = malloc(sc->dvr.size, M_USBDEV, M_WAITOK);
-    if(sc->dvr.buf == NULL) {
-        ERR("could not allocate dvr buf\n");
-        mtx_destroy(&sc->filterlock);
-        mtx_destroy(&sc->dvr.lock);
-        return (ENOMEM);
-    }
-    sms1xxx_demux_pesbuf_reset(sc, 0, "init");
-    sc->dvr.state = 0;
-
-    /* Filters */
-    int i;
-    for(i = 0; i < MAX_FILTERS; ++i) {
-        sc->filter[i].dev = NULL;
-        sc->filter[i].pid = PIDFREE;
-    }
-
-    /* Devices */
-    clone_setup(&sc->demux_clones);
-    sc->clonetag = EVENTHANDLER_REGISTER(dev_clone, sms1xxx_demux_clone,
-                         sc, 1000);
-    sc->dvr.dev = make_dev(&sms1xxx_dvr_cdevsw,
-        device_get_unit(sc->sc_dev),
-        UID_ROOT, GID_WHEEL, 0666,
-        "dvb/adapter%d/dvr0",
-        device_get_unit(sc->sc_dev));
-    if (sc->dvr.dev != NULL)
-        sc->dvr.dev->si_drv1 = sc;
-
-    TRACE(TRACE_MODULE,"created dvr0 device, addr=%p\n",sc->dvr.dev);
-    return (0);
-}
-
-/* Called from detach */
-void
-sms1xxx_demux_exit(struct sms1xxx_softc *sc)
-{
-    /* Wake up readers ! */
-    if(sc->dvr.state & DVR_SLEEP) {
-        wakeup(&sc->dvr);
-    }
-    if(sc->dvr.state & DVR_POLL) {
-        sc->dvr.state &= ~DVR_POLL;
-        selwakeuppri(&sc->dvr.rsel,PZERO);
-    }
-
-    /* Devices */
-    if(sc->dvr.dev != NULL) {
-        TRACE(TRACE_MODULE,"destroying dvr0, addr=%p\n",sc->dvr.dev);
-        destroy_dev(sc->dvr.dev);
-        sc->dvr.dev = NULL;
-    }
-    if(sc->clonetag != NULL) {
-        EVENTHANDLER_DEREGISTER(dev_clone,sc->clonetag);
-        sc->clonetag = NULL;
-    }
-
-    /* Destroy remaining clones */
-    for(int i = 0; i < MAX_FILTERS; ++i) {
-        if((sc->filter[i].pid != PIDFREE) &&
-        (sc->filter[i].dev != NULL)) {
-            TRACE(TRACE_MODULE,"destroying demux0.%d device, addr=%p\n",
-                i,sc->filter[i].dev);
-            destroy_dev_sched(sc->filter[i].dev);
-        }
-    }
-    if(sc->demux_clones != NULL) {
-        drain_dev_clone_events();
-        clone_cleanup(&sc->demux_clones);
-        sc->demux_clones = NULL;
-    }
-
-    /* DVR */
-    sc->dvr.state = 0;
-    sms1xxx_demux_pesbuf_reset(sc, 0, "exit");
-    if(sc->dvr.buf != NULL) {
-        free(sc->dvr.buf, M_USBDEV);
-        sc->dvr.buf = NULL;
-    }
-
-    /* Mutexes */
-    mtx_destroy(&sc->filterlock);
-    mtx_destroy(&sc->dvr.lock);
-}
-
-/* Called from usb interrupt callback */
-void
-sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
-{
-    int i, done = 0, dvrdone = 0;
-    u16 pid = TS_GET_PID(p);
-#ifdef SMS1XXX_DIAGNOSTIC
-    u8 cc = TS_GET_CC(p);
-#endif
-
-    for(i = 0; i < MAX_FILTERS && !done ; ++i) {
-         struct filter *f = &sc->filter[i];
-         if(pid != f->pid && f->pid != PIDALL) {
-             continue;
-         }
-         /* dvr0 device */
-         if(f->type == FILTER_TYPE_PES && !dvrdone) {
-             if(sc->dvr.wavail >= PACKET_SIZE) {
-                 memcpy(sc->dvr.buf+sc->dvr.woff,p,PACKET_SIZE);
-                 sc->dvr.woff += PACKET_SIZE;
-                 if(sc->dvr.woff == sc->dvr.size)
-                     sc->dvr.woff = 0;
-
-                 mtx_lock(&sc->dvr.lock);
-                 sc->dvr.wavail -= PACKET_SIZE;
-                 sc->dvr.ravail += PACKET_SIZE;
-#ifdef SMS1XXX_DIAGNOSTIC
-                 if(sc->dvr.wavail < sc->stats.min_wavail)
-                     sc->stats.min_wavail = sc->dvr.wavail;
-                 if(sc->dvr.ravail > sc->stats.max_ravail)
-                     sc->stats.max_ravail = sc->dvr.ravail;
-#endif
-                 mtx_unlock(&sc->dvr.lock);
-                 if(sc->dvr.nobufs != 0) {
-                     WARN("%u packets dropped due to no "
-                         "buffer space\n", sc->dvr.nobufs);
-                     sc->dvr.nobufs = 0;
-                 }
-             }
-             else {
-                 sc->dvr.nobufs++;
-             }
-             if(sc->dvr.ravail >= sc->dvr.threshold) {
-                 /* Wake up readers ! */
-                 if(sc->dvr.state & DVR_SLEEP)
-                     wakeup(&sc->dvr);
-                 if(sc->dvr.state & DVR_POLL) {
-                     sc->dvr.state &= ~DVR_POLL;
-                     selwakeuppri(&sc->dvr.rsel, PZERO);
-                 }
-             }
-             dvrdone = 1;
-         }
-         /* demux0.n devices */
-         else if(f->type == FILTER_TYPE_SECT) {
-#ifndef SMS1XXX_DIAGNOSTIC
-             u8 cc = TS_GET_CC(p);
-#endif
-             if(cc == f->cc)
-                 done = sms1xxx_demux_write_section(sc, p, f);
-             else {
-                 sms1xxx_demux_sectbuf_reset(sc, f, 1,
-                    "discontinuity");
-                 done = 1;
-             }
-#ifndef SMS1XXX_DIAGNOSTIC
-             f->cc = (cc + 1) & 0xF;
-#endif
-         }
-#ifdef SMS1XXX_DIAGNOSTIC
-         if(cc != sc->filter[i].cc &&
-         cc != sc->filter[i].cc - 1) {
-             WARN("discontinuity for pid: %d expected: %x "
-                "got: %x\n", pid,sc->filter[i].cc,cc);
-         }
-         sc->stats.packetsmatched++;
-         sc->filter[i].cc = (cc + 1) & 0xF;
-#endif
-    }
-    return;
-}
-
-void
-sms1xxx_demux_pesbuf_reset(struct sms1xxx_softc *sc,
-    int wake, char *msg)
-{
-    TRACE(TRACE_SECT,"reason: %s\n",msg);
-
-    mtx_lock(&sc->dvr.lock);
-    sc->dvr.roff = 0;
-    sc->dvr.woff = 0;
-    sc->dvr.ravail = 0;
-    sc->dvr.wavail = sc->dvr.size;
-    mtx_unlock(&sc->dvr.lock);
-
-    if(wake) {
-        /* Wake up readers ! */
-        if(sc->dvr.state & DVR_SLEEP) {
-            wakeup(&sc->dvr);
-        }
-        if(sc->dvr.state & DVR_POLL) {
-            sc->dvr.state &= ~DVR_POLL;
-            selwakeuppri(&sc->dvr.rsel,PZERO);
-        }
-    }
-}
 
 /*****************************
  * Demuxer private functions *
@@ -1169,13 +964,13 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
         err = sc->device->pid_filter(sc,f->pid & ~PIDSTOPPED,1);
         if(!err)
             err = sms1xxx_demux_start(sc,f);
-        TRACE(TRACE_IOCTL,"DMX_START = %d\n",err);
+        TRACE(TRACE_IOCTL,"DMX_START=%d\n",err);
         break;
     case DMX_STOP:
         err = sc->device->pid_filter(sc,f->pid,0);
         if(!err)
             err = sms1xxx_demux_stop(sc,f);
-        TRACE(TRACE_IOCTL,"DMX_STOP = %d\n",err);
+        TRACE(TRACE_IOCTL,"DMX_STOP=%d\n",err);
         break;
     case FIONBIO:
         TRACE(TRACE_IOCTL,"FIONBIO\n");
@@ -1211,4 +1006,211 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
     }
     f->state &= ~FILTER_BUSY;
     return (err);
+}
+
+/****************************
+ * Demuxer public functions *
+ ****************************/
+
+/* Called from attach */
+int
+sms1xxx_demux_init(struct sms1xxx_softc *sc)
+{
+    /* Mutexes */
+    mtx_init(&sc->dvr.lock, "DVB Dvr lock", NULL, MTX_DEF);
+    mtx_init(&sc->filterlock, "DVB Filter lock", NULL, MTX_DEF);
+
+    /* DVR */
+    sc->dvr.threshold = THRESHOLD;
+    sc->dvr.size = DVRBUFSIZE;
+    sc->dvr.buf = malloc(sc->dvr.size, M_USBDEV, M_WAITOK);
+    if(sc->dvr.buf == NULL) {
+        ERR("could not allocate dvr buf\n");
+        mtx_destroy(&sc->filterlock);
+        mtx_destroy(&sc->dvr.lock);
+        return (ENOMEM);
+    }
+    sms1xxx_demux_pesbuf_reset(sc, 0, "init");
+    sc->dvr.state = 0;
+
+    /* Filters */
+    int i;
+    for(i = 0; i < MAX_FILTERS; ++i) {
+        sc->filter[i].dev = NULL;
+        sc->filter[i].pid = PIDFREE;
+    }
+
+    /* Devices */
+    clone_setup(&sc->demux_clones);
+    sc->clonetag = EVENTHANDLER_REGISTER(dev_clone, sms1xxx_demux_clone,
+                         sc, 1000);
+    sc->dvr.dev = make_dev(&sms1xxx_dvr_cdevsw,
+        device_get_unit(sc->sc_dev),
+        UID_ROOT, GID_WHEEL, 0666,
+        "dvb/adapter%d/dvr0",
+        device_get_unit(sc->sc_dev));
+    if (sc->dvr.dev != NULL)
+        sc->dvr.dev->si_drv1 = sc;
+
+    TRACE(TRACE_MODULE,"created dvr0 device, addr=%p\n",sc->dvr.dev);
+    return (0);
+}
+
+/* Called from detach */
+void
+sms1xxx_demux_exit(struct sms1xxx_softc *sc)
+{
+    /* Wake up readers ! */
+    if(sc->dvr.state & DVR_SLEEP) {
+        wakeup(&sc->dvr);
+    }
+    if(sc->dvr.state & DVR_POLL) {
+        sc->dvr.state &= ~DVR_POLL;
+        selwakeuppri(&sc->dvr.rsel,PZERO);
+    }
+
+    /* Devices */
+    if(sc->dvr.dev != NULL) {
+        TRACE(TRACE_MODULE,"destroying dvr0, addr=%p\n",sc->dvr.dev);
+        destroy_dev(sc->dvr.dev);
+        sc->dvr.dev = NULL;
+    }
+    if(sc->clonetag != NULL) {
+        EVENTHANDLER_DEREGISTER(dev_clone,sc->clonetag);
+        sc->clonetag = NULL;
+    }
+
+    /* Destroy remaining clones */
+    for(int i = 0; i < MAX_FILTERS; ++i) {
+        if((sc->filter[i].pid != PIDFREE) &&
+        (sc->filter[i].dev != NULL)) {
+            TRACE(TRACE_MODULE,"destroying demux0.%d device, addr=%p\n",
+                i,sc->filter[i].dev);
+            destroy_dev_sched(sc->filter[i].dev);
+        }
+    }
+    if(sc->demux_clones != NULL) {
+        drain_dev_clone_events();
+        clone_cleanup(&sc->demux_clones);
+        sc->demux_clones = NULL;
+    }
+
+    /* DVR */
+    sc->dvr.state = 0;
+    sms1xxx_demux_pesbuf_reset(sc, 0, "exit");
+    if(sc->dvr.buf != NULL) {
+        free(sc->dvr.buf, M_USBDEV);
+        sc->dvr.buf = NULL;
+    }
+
+    /* Mutexes */
+    mtx_destroy(&sc->filterlock);
+    mtx_destroy(&sc->dvr.lock);
+}
+
+/* Called from usb interrupt callback */
+void
+sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
+{
+    int i, done = 0, dvrdone = 0;
+    u16 pid = TS_GET_PID(p);
+#ifdef SMS1XXX_DIAGNOSTIC
+    u8 cc = TS_GET_CC(p);
+#endif
+
+    for(i = 0; i < MAX_FILTERS && !done ; ++i) {
+         struct filter *f = &sc->filter[i];
+         if(pid != f->pid && f->pid != PIDALL) {
+             continue;
+         }
+         /* dvr0 device */
+         if(f->type == FILTER_TYPE_PES && !dvrdone) {
+             if(sc->dvr.wavail >= PACKET_SIZE) {
+                 memcpy(sc->dvr.buf+sc->dvr.woff,p,PACKET_SIZE);
+                 sc->dvr.woff += PACKET_SIZE;
+                 if(sc->dvr.woff == sc->dvr.size)
+                     sc->dvr.woff = 0;
+
+                 mtx_lock(&sc->dvr.lock);
+                 sc->dvr.wavail -= PACKET_SIZE;
+                 sc->dvr.ravail += PACKET_SIZE;
+#ifdef SMS1XXX_DIAGNOSTIC
+                 if(sc->dvr.wavail < sc->stats.min_wavail)
+                     sc->stats.min_wavail = sc->dvr.wavail;
+                 if(sc->dvr.ravail > sc->stats.max_ravail)
+                     sc->stats.max_ravail = sc->dvr.ravail;
+#endif
+                 mtx_unlock(&sc->dvr.lock);
+                 if(sc->dvr.nobufs != 0) {
+                     WARN("%u packets dropped due to no "
+                         "buffer space\n", sc->dvr.nobufs);
+                     sc->dvr.nobufs = 0;
+                 }
+             }
+             else {
+                 sc->dvr.nobufs++;
+             }
+             if(sc->dvr.ravail >= sc->dvr.threshold) {
+                 /* Wake up readers ! */
+                 if(sc->dvr.state & DVR_SLEEP)
+                     wakeup(&sc->dvr);
+                 if(sc->dvr.state & DVR_POLL) {
+                     sc->dvr.state &= ~DVR_POLL;
+                     selwakeuppri(&sc->dvr.rsel, PZERO);
+                 }
+             }
+             dvrdone = 1;
+         }
+         /* demux0.n devices */
+         else if(f->type == FILTER_TYPE_SECT) {
+#ifndef SMS1XXX_DIAGNOSTIC
+             u8 cc = TS_GET_CC(p);
+#endif
+             if(cc == f->cc)
+                 done = sms1xxx_demux_write_section(sc, p, f);
+             else {
+                 sms1xxx_demux_sectbuf_reset(sc, f, 1,
+                    "discontinuity");
+                 done = 1;
+             }
+#ifndef SMS1XXX_DIAGNOSTIC
+             f->cc = (cc + 1) & 0xF;
+#endif
+         }
+#ifdef SMS1XXX_DIAGNOSTIC
+         if(cc != sc->filter[i].cc &&
+         cc != sc->filter[i].cc - 1) {
+             WARN("discontinuity for pid: %d expected: %x "
+                "got: %x\n", pid,sc->filter[i].cc,cc);
+         }
+         sc->stats.packetsmatched++;
+         sc->filter[i].cc = (cc + 1) & 0xF;
+#endif
+    }
+    return;
+}
+
+void
+sms1xxx_demux_pesbuf_reset(struct sms1xxx_softc *sc,
+    int wake, char *msg)
+{
+    TRACE(TRACE_SECT,"reason: %s\n",msg);
+
+    mtx_lock(&sc->dvr.lock);
+    sc->dvr.roff = 0;
+    sc->dvr.woff = 0;
+    sc->dvr.ravail = 0;
+    sc->dvr.wavail = sc->dvr.size;
+    mtx_unlock(&sc->dvr.lock);
+
+    if(wake) {
+        /* Wake up readers ! */
+        if(sc->dvr.state & DVR_SLEEP) {
+            wakeup(&sc->dvr);
+        }
+        if(sc->dvr.state & DVR_POLL) {
+            sc->dvr.state &= ~DVR_POLL;
+            selwakeuppri(&sc->dvr.rsel,PZERO);
+        }
+    }
 }

@@ -1,15 +1,17 @@
 /*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
- *  Copyright (C) 2008-2009 - Ganaël Laplanche, http://contribs.martymac.org
+ *  Copyright (C) 2008-2010, Ganaël Laplanche, http://contribs.martymac.org
  *
  *  This driver contains code taken from the FreeBSD dvbusb driver:
  *
- *  Copyright (C) 2006 - 2007 Raaf
- *  Copyright (C) 2004 - 2006 Patrick Boettcher
+ *  Copyright (C) 2006-2007, Raaf
+ *  Copyright (C) 2004-2006, Patrick Boettcher
  *
  *  This driver contains code taken from the Linux siano driver:
  *
- *  Copyright (c), 2005-2008 Siano Mobile Silicon, Inc.
+ *  Siano Mobile Silicon, Inc.
+ *  MDTV receiver kernel modules.
+ *  Copyright (C) 2006-2009, Uri Shkolnik
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -29,6 +31,7 @@
 #define SMS1XXX_USB_H
 
 #include "sms1xxx.h"
+#include "sms1xxx-gpio.h"
 
 int sms1xxx_usb_init(struct sms1xxx_softc *);
 int sms1xxx_usb_exit(struct sms1xxx_softc *);
@@ -39,9 +42,12 @@ void sms1xxx_usb_deref(struct sms1xxx_softc *);
 int sms1xxx_usb_xfers_start(struct sms1xxx_softc *);
 int sms1xxx_usb_xfers_stop(struct sms1xxx_softc *);
 
-int sms1xxx_usb_write(struct sms1xxx_softc *, const u8 *, u32) ;
-int sms1xxx_usb_write_and_wait(struct sms1xxx_softc *, const u8 *, u32,
-    unsigned char, unsigned int);
+int sms1xxx_usb_rawwrite(struct sms1xxx_softc *, const u8 *, u32) ;
+int sms1xxx_usb_write(struct sms1xxx_softc *, u8 *, u32) ;
+int sms1xxx_usb_rawwrite_and_wait(struct sms1xxx_softc *, const u8 *, u32,
+    u16, unsigned int);
+int sms1xxx_usb_write_and_wait(struct sms1xxx_softc *, u8 *, u32,
+    u16, unsigned int);
 
 int sms1xxx_usb_setmode(struct sms1xxx_softc *, int) ;
 int sms1xxx_usb_initdevice(struct sms1xxx_softc *, int) ;
@@ -56,5 +62,10 @@ int sms1xxx_usb_add_pid(struct sms1xxx_softc *, u16);
 int sms1xxx_usb_remove_pid(struct sms1xxx_softc *, u16);
 
 int sms1xxx_usb_ir_start(struct sms1xxx_softc *);
+
+int sms1xxx_usb_gpio_configure(struct sms1xxx_softc *,
+    u32, struct sms1xxx_gpio_config *);
+int sms1xxx_usb_gpio_set_level(struct sms1xxx_softc *, u8, u8);
+int sms1xxx_usb_gpio_get_level(struct sms1xxx_softc *, u8, u8 *);
 
 #endif
