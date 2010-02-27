@@ -78,15 +78,6 @@ typedef boolean_t   bool;
 #define SMS1XXX_BOARD_SIANO_NICE           (0x00000b00UL | SMS1XXX_TYPE_NOVA_B)
 #define SMS1XXX_BOARD_SIANO_VENICE         (0x00000c00UL | SMS1XXX_TYPE_VEGA)
 
-/* Vendor IDs */
-#define USB_VID_SIANO                      0x187f
-#define USB_VID_HAUPPAUGE                  0x2040
-
-/* Product IDs */
-#define USB_PID_SIANO_SMS1000              0x0010
-#define USB_PID_SIANO_DMB                  0x0100
-#define USB_PID_HAUPPAUGE_MINISTICK        0x5500
-
 /* Supported modes */
 enum SMS1XXX_DEVICE_MODE {
     DEVICE_MODE_NONE = -1,
@@ -157,6 +148,7 @@ typedef STAILQ_HEAD(, sms1xxx_data) sms1xxx_datahead;
 #define MSG_SMS_ADD_PID_FILTER_RES          602
 #define MSG_SMS_REMOVE_PID_FILTER_REQ       603
 #define MSG_SMS_REMOVE_PID_FILTER_RES       604
+#define MSG_SMS_DAB_CHANNEL                 607 /* XXX not used yet */
 #define MSG_SMS_GET_PID_FILTER_LIST_REQ     608
 #define MSG_SMS_GET_PID_FILTER_LIST_RES     609
 #define MSG_SMS_GET_STATISTICS_REQ          615
@@ -170,6 +162,7 @@ typedef STAILQ_HEAD(, sms1xxx_data) sms1xxx_datahead;
 #define MSG_SMS_GET_VERSION_EX_RES          669
 #define MSG_SMS_DVBT_BDA_DATA               693
 #define MSG_SW_RELOAD_REQ                   697
+#define MSG_SMS_DATA_MSG                    699 /* XXX not used yet */
 #define MSG_SW_RELOAD_START_REQ             702
 #define MSG_SW_RELOAD_START_RES             703
 #define MSG_SW_RELOAD_EXEC_REQ              704

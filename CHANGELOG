@@ -1,3 +1,12 @@
+20100227 ('Let's play'):
+    * Zapping bug with Mplayer fixed (thanks to Joerg Pulz !)
+    * Better handling of special PID 0x2000
+    * Demux device <-> filter mappings revised
+    * Fixed race condition that could lead to a panic when
+      fastly opening/closing demux0 device
+    * Added sms1xxx(4) man page
+    * Functionnalities Sync'ed with Linux kernel 2.6.33 (no changes)
+
 20100203 ('First smile'):
     * Functionnalities Sync'ed with Linux kernel 2.6.33rc3
     * Added GPIO support (see README)

@@ -13,11 +13,11 @@ http://linuxtv.org/wiki/index.php/TerraTec_Cinergy_Piranha
 
 The FreeBSD driver has been successfully tested with two devices :
 
-- Terratec Cinergy Piranha DVB-T USB Dongle
+- Terratec Cinergy Piranha
 - Hauppauge WinTV MiniStick (HD)
 
-Other devices should work, just give a try (you may want to add new
-VIDs/PIDs to make your device detected).
+Other devices should work, just give a try (you will need to edit the
+sources and add new VIDs/PIDs to make your device detected).
 
 The FreeBSD version of the driver is based on the great dvbusb driver
 written by Raaf :
@@ -114,10 +114,10 @@ change that value, depending on where you live and the kind of hardware
 you use.
 * hw.usb.sms1xxx.requested_mode: Requested mode
 (0=DVB-T, 1=DVB-H, 2=DAB/T-DMB, 4=DVB-T/BDA, 5=ISDBT, 6=ISDBT/BDA)
-This sysctl is the mode that will be requested when plugging the device.
+This sysctl is the mode that will be requested when plugging the next device.
 You must have loaded the corresponding firmware in the previous step.
-Please note that currently, only DVB-T (mode 4) has been successfully tested
-(this is the default mode).
+Please note that currently, only DVB-T (mode 4) is supported (this is the
+default mode).
 
 Testing the driver :
 ********************
@@ -227,7 +227,7 @@ DVB adapter's device directory (/dev/dvb/adapter0/ir0).
 Reading this device will give you access to raw IR data received by the
 adapter (use the provided remote control, if any).
 
-It the IR module is sucessfully started, the 'ir_module_started' sysctl
+If the IR module is sucessfully started, the 'ir_module_started' sysctl
 of your device's node will also be set to 1.
 
 For your convenience, an utility that decodes and prints received
@@ -262,9 +262,14 @@ with debug support and check if the sysctl 'dev.sms1xxx.n.led_status' appears
 once the device is plugged in. This sysctl can be used to test LEDs by setting
 it to special values. See the sysctl's description for more details.
 
-* If LNA handling is supported, the sysctl 'dev.sms1xxx.n.use_lna' will
-appear. Setting it to 1 will make the driver turn LNA on before each tuning
+* If LNA handling is supported by your device, the sysctl 'dev.sms1xxx.n.use_lna'
+will appear. Setting it to 1 will make the driver turn LNA on before each tuning
 request. See the sysctl's description for more details.
+
+See also :
+**********
+
+See also sms1xxx(4) man page.
 
 Links :
 *******
@@ -281,11 +286,17 @@ http://www.linuxtv.org/docs/dvbapi/Contents.html
 If you are looking for some additional firmwares, you can follow this post :
 http://www.linuxtv.org/pipermail/linux-dvb/2009-January/031537.html
 
+And this link :
+http://www.steventoth.net/linux/sms1xxx
+
 Raaf's original work for the dvbusb driver :
 http://raaf.atspace.org/dvbusb
 
 V4L-Compat :
 http://www.tangobravo.co.uk/v4l-compat
+
+Video4BSD :
+http://www.selasky.org/hans_petter/video4bsd/index.html
 
 Author :
 ********

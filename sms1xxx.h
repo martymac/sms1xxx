@@ -171,15 +171,22 @@ struct sms1xxx_softc {
     int streamrefs;
     eventhandler_tag clonetag;
     struct clonedevs *demux_clones;
-#define MAX_FILTERS 32     /* maximum number of active filters per device */
+#define MAX_FILTERS     32      /* maximum number of active filters
+                                   per device */
 /* PID values */
-#define PIDMAX      0x1FFF /* maximum pid value that is valid for filtering */
-#define PIDALL      0x2000 /* special value for all pids */
+#define PIDALL          0x2000  /* special value for all pids */
+#define PIDMAX_TS       0x1FFF  /* maximum pid value that is valid inside
+                                   TS packets (13 bit, without PIDALL) */
+#define PIDMAX          0x2000  /* maximum pid value that is valid
+                                   for filtering (including special PIDALL) */
 /* PID status */
-#define PIDSTOPPED  0x4000 /* pid initialised but not used for filtering */
-#define PIDEMPTY    0xFFFE /* filter open but pid not initialized */
-#define PIDCLONED   0xFFFD /* filter has a cloned device ready */
-#define PIDFREE     0xFFFF /* filter available for use (initial state) */
+#define PIDSTOPPED      0x4000  /* pid initialised but not used for filtering */
+#define pid_value(pid)  ((pid) & (PIDMAX_TS | PIDALL)) /* remove status
+                                                          from PID */
+/* Our special values */
+#define PIDEMPTY        0xFFFD  /* filter open but pid not initialized */
+#define PIDCLONED       0xFFFE  /* filter has a cloned device ready */
+#define PIDFREE         0xFFFF  /* filter available for use (initial state) */
     struct filter {
         struct cdev *dev;  /* asociated device */
         u8 *buf;

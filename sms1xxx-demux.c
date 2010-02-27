@@ -276,63 +276,15 @@ sms1xxx_demux_clone(void *arg, struct ucred *cred, char *name,
  * Demuxer private functions *
  *****************************/
 
-/* Return the first matching filter given a cdev
-   pointer */
-static int
-sms1xxx_demux_dev2filtnr(struct cdev *dev)
+/* Callback function for destroy_dev_sched_cb()
+   Avoids race with dev_rel() when fastly opening/closing demux0 */
+static void
+sms1xxx_demux_filter_release(void *arg)
 {
-    TRACE(TRACE_FILTERS, "dev=%p\n", dev);
-    struct sms1xxx_softc *sc;
-
-    if(dev == NULL) return (-1);
-
-    sc = dev->si_drv1;
-
-    if((sc == NULL) || (sc->sc_dying))
-        return (-1);
-
-    for(int i = 0; i < MAX_FILTERS; ++i) {
-        if (sc->filter[i].dev == dev)
-            return (i);
-    }
-    return (-1);
-}
-
-/* Return the first matching filter given a pid.
-   Returns the first filter used if PIDALL requested,
-   and may return a filter associated to PIDALL (if found)
-   for any PID requested. This behaviour avoids setting
-   both PIDALL and 'real' filters in our pool */
-static int
-sms1xxx_demux_pid2filtnr(struct sms1xxx_softc *sc, u16 pid)
-{
-    TRACE(TRACE_FILTERS, "sc=%p, pid=%d\n", sc, pid);
-    if((sc == NULL) || (sc->sc_dying))
-        return (-1);
-
-    if(pid > PIDALL)
-        return (-1);
-
-    for(int i = 0; i < MAX_FILTERS; ++i) {
-        /* Skip uninitialized filters */
-        if ((sc->filter[i].pid == PIDFREE) ||
-            (sc->filter[i].pid == PIDCLONED) ||
-            (sc->filter[i].pid == PIDEMPTY))
-            continue;
-
-        /* If PIDALL requested, return
-           the first filter used */
-        if ((pid == PIDALL) &&
-            ((sc->filter[i].pid & PIDMAX) <= PIDMAX))
-            return (i);
-
-        /* If pid or PIDALL found, return
-           the corresponding filter */
-        if (((sc->filter[i].pid & PIDMAX) == pid) ||
-            ((sc->filter[i].pid & PIDALL) == PIDALL))
-            return (i);
-    }
-    return (-1);
+    struct filter *f = arg;
+    f->dev = NULL;
+    f->pid = PIDFREE;
+    return;
 }
 
 /* Called on each sms1xxx_demux_start() */
@@ -408,7 +360,7 @@ static void
 sms1xxx_demux_sectbuf_reset(struct sms1xxx_softc *sc, struct filter *f,
     int wake, char *msg)
 {
-    TRACE(TRACE_SECT,"pid: %hu reason: %s\n",f->pid * PIDMAX,msg);
+    TRACE(TRACE_SECT,"pid: %hu reason: %s\n", f->pid, msg);
     mtx_lock(&sc->filterlock);
     f->woff = 0;
     f->roff = 0;
@@ -567,7 +519,7 @@ sms1xxx_demux_clone(void *arg, struct ucred *cred, char *name,
     }
 
     if(sc->filter[filtnr].dev != NULL) {
-        ERR("filter %d not free\n",filtnr);
+        ERR("filter %d not free\n", filtnr);
         return;
     }
 
@@ -586,10 +538,11 @@ sms1xxx_demux_clone(void *arg, struct ucred *cred, char *name,
             device_get_unit(sc->sc_dev), filtnr);
         if(*dev != NULL) {
             TRACE(TRACE_MODULE,"created demux0.%d device, addr=%p\n",
-                filtnr,*dev);
+                filtnr, *dev);
             (*dev)->si_flags |= SI_CHEAPCLONE;
             (*dev)->si_drv1 = sc;
-            sc->filter[filtnr].dev = *dev;
+            (*dev)->si_drv2 = &sc->filter[filtnr];  /* map filter to device */
+            sc->filter[filtnr].dev = *dev;          /* map device to filter */
             sc->filter[filtnr].pid = PIDCLONED;
         }
     }
@@ -598,17 +551,11 @@ sms1xxx_demux_clone(void *arg, struct ucred *cred, char *name,
 static int
 sms1xxx_demux_open(struct cdev *dev, int flag, int mode, struct thread *p)
 {
+    int err = 0;
     struct sms1xxx_softc *sc;
     struct filter *f;
-    int err = 0;
-    int filtnr = sms1xxx_demux_dev2filtnr(dev);
 
-    if (filtnr < 0) {
-        ERR("filter not found\n");
-        return (ENOENT);
-    }
-
-    TRACE(TRACE_OPEN,"flag=%d, mode=%d, filtnr=%d\n", flag, mode, filtnr);
+    TRACE(TRACE_OPEN,"flag=%d, mode=%d, f=%p\n", flag, mode, dev->si_drv2);
 
     sc = dev->si_drv1;
     if(sc == NULL || sc->sc_dying) {
@@ -616,7 +563,11 @@ sms1xxx_demux_open(struct cdev *dev, int flag, int mode, struct thread *p)
         return (ENXIO);
     }
 
-    f = &sc->filter[filtnr];
+    f = dev->si_drv2;
+    if (f == NULL) {
+        ERR("no filter found\n");
+        return (ENOENT);
+    }
     if(f->pid != PIDCLONED) {
         TRACE(TRACE_OPEN,"busy!\n");
         return (EBUSY);
@@ -718,17 +669,11 @@ sms1xxx_demux_read_section(struct sms1xxx_softc *sc, struct filter *f,
 static int
 sms1xxx_demux_read(struct cdev *dev, struct uio *uio, int flag)
 {
+    int err = 0;
     struct sms1xxx_softc *sc;
     struct filter *f;
-    int err = 0;
-    int filtnr = sms1xxx_demux_dev2filtnr(dev);
 
-    if (filtnr < 0) {
-        ERR("filter not found\n");
-        return (EBADF);
-    }
-
-    TRACE(TRACE_READ,"filtnr=%d, flag=%d\n",filtnr,flag);
+    TRACE(TRACE_READ,"flag=%d, f=%p\n", flag, dev->si_drv2);
 
     sc = dev->si_drv1;
     if(sc == NULL || sc->sc_dying) {
@@ -736,7 +681,11 @@ sms1xxx_demux_read(struct cdev *dev, struct uio *uio, int flag)
         return (ENXIO);
     }
 
-    f = &sc->filter[filtnr];
+    f = dev->si_drv2;
+    if (f == NULL) {
+        ERR("no filter found\n");
+        return (EBADF);
+    }
     if(f->state & FILTER_SLEEP) {
         ERR("read already in progress\n");
         return (EBUSY);
@@ -763,17 +712,11 @@ sms1xxx_demux_read(struct cdev *dev, struct uio *uio, int flag)
 static int
 sms1xxx_demux_poll(struct cdev *dev, int events, struct thread *p)
 {
+    int revents = 0;
     struct sms1xxx_softc *sc;
     struct filter *f;
-    int revents = 0;
-    int filtnr = sms1xxx_demux_dev2filtnr(dev);
 
-    if (filtnr < 0) {
-        ERR("filter not found\n");
-        return (EFAULT);
-    }
-
-    TRACE(TRACE_POLL,"thread=%p, events=%d, filtnr=%d\n",p,events,filtnr);
+    TRACE(TRACE_POLL,"thread=%p, events=%d, f=%p\n", p, events, dev->si_drv2);
 
     sc = dev->si_drv1;
     if(sc == NULL || sc->sc_dying) {
@@ -781,7 +724,12 @@ sms1xxx_demux_poll(struct cdev *dev, int events, struct thread *p)
         return ((events & (POLLIN | POLLOUT | POLLRDNORM |
             POLLWRNORM)) | POLLHUP);
     }
-    f = &sc->filter[filtnr];
+
+    f = dev->si_drv2;
+    if (f == NULL) {
+        ERR("no filter found\n");
+        return (EFAULT);
+    }
 
     /* XXX POLLERR POLLPRI */
     if(events & (POLLIN | POLLRDNORM)) {
@@ -807,25 +755,24 @@ sms1xxx_demux_close(struct cdev *dev, int flag, int mode, struct thread *p)
 {
     struct sms1xxx_softc *sc;
     struct filter *f;
-    int filtnr = sms1xxx_demux_dev2filtnr(dev);
 
-    if (filtnr < 0) {
-        ERR("filter not found\n");
-        return (EBADF);
-    }
-
-    TRACE(TRACE_OPEN,"flag=%d, mode=%d, filtnr=%d\n", flag, mode, filtnr);
+    TRACE(TRACE_OPEN,"flag=%d, mode=%d, f=%p\n", flag, mode, dev->si_drv2);
 
     sc = dev->si_drv1;
     if(sc == NULL || sc->sc_dying) {
         TRACE(TRACE_MODULE,"dying! sc=%p\n",sc);
         return (ENXIO);
     }
-    f = &sc->filter[filtnr];
+    f = dev->si_drv2;
+    if (f == NULL) {
+        ERR("no filter found\n");
+        return (EBADF);
+    }
 
     /* Remove PID filter if not already done */
     if(!(f->pid & PIDSTOPPED)) {
-        sc->device->pid_filter(sc,f->pid,0);
+        if(pid_value(f->pid) <= PIDMAX)
+            sc->device->pid_filter(sc,pid_value(f->pid),0);
         sms1xxx_demux_stop(sc,f);
     }
     f->pid = PIDEMPTY;
@@ -838,11 +785,10 @@ sms1xxx_demux_close(struct cdev *dev, int flag, int mode, struct thread *p)
     f->pid = PIDCLONED;
 
     /* Destroy the clone */
-    TRACE(TRACE_MODULE,"destroying demux0.%d device, addr=%p\n",filtnr,dev);
+    TRACE(TRACE_MODULE,"destroying demux device, addr=%p\n", dev);
     dev->si_drv1 = NULL;
-    f->dev = NULL;
-    f->pid = PIDFREE;
-    destroy_dev_sched(dev);
+    dev->si_drv2 = NULL;
+    destroy_dev_sched_cb(dev, sms1xxx_demux_filter_release, f);
 
     return (0);
 }
@@ -851,18 +797,12 @@ static int
 sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
     struct thread *p)
 {
+    int err = 0;
     struct sms1xxx_softc *sc;
     struct filter *f;
     void *arg = addr;
-    int err = 0;
-    int filtnr = sms1xxx_demux_dev2filtnr(dev);
 
-    TRACE(TRACE_MODULE,"filnr=%d\n",filtnr);
-
-    if (filtnr < 0) {
-        ERR("filter not found\n");
-        return (EBADF);
-    }
+    TRACE(TRACE_MODULE,"f=%p\n", dev->si_drv2);
 
     sc = dev->si_drv1;
     if(sc == NULL || sc->sc_dying) {
@@ -870,7 +810,11 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
         return (ENXIO);
     }
 
-    f = &sc->filter[filtnr];
+    f = dev->si_drv2;
+    if (f == NULL) {
+        ERR("no filter found\n");
+        return (EBADF);
+    }
     if(f->state & FILTER_BUSY) {
         ERR("ioctl on filter in progress\n");
         return (EBUSY);
@@ -881,9 +825,7 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
     case DMX_SET_PES_FILTER:
         {
             struct dmx_pes_filter_params *p = arg;
-            TRACE(TRACE_IOCTL,"DMX_SET_PES_FILTER "
-                "(pid=%d, filtnr=%d)\n"
-                ,p->pid,filtnr);
+            TRACE(TRACE_IOCTL,"DMX_SET_PES_FILTER (pid=%d, f=%p)\n", p->pid, f);
 
             err = EINVAL;
             if(p->input != DMX_IN_FRONTEND) {
@@ -894,13 +836,14 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
                 ERR("only dvr as output supported\n");
                 break;
             }
-            if(p->pid > PIDALL) {
+            if(p->pid > PIDMAX) {
                 ERR("invalid pid: %hu\n",p->pid);
                 break;
             }
-            if(sms1xxx_demux_pid2filtnr(sc, p->pid) >= 0) {
-                ERR("pid (or PIDALL) already set: %hu\n",p->pid);
-                break;
+            /* cancel previous filter, if any */
+            if(pid_value(f->pid) <= PIDMAX) {
+                sc->device->pid_filter(sc,pid_value(f->pid),0);
+                sms1xxx_demux_stop(sc,f);
             }
 
             f->pid = p->pid|PIDSTOPPED;
@@ -919,8 +862,8 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
              * only uses first byte for filtering (table id)
              */
             struct dmx_sct_filter_params *p = arg;
-            TRACE(TRACE_IOCTL,"DMX_SET_FILTER  (pid=%d, value=%d, "
-                "filtnr=%d)\n",p->pid,p->filter.filter[0],filtnr);
+            TRACE(TRACE_IOCTL,"DMX_SET_FILTER  (pid=%d, value=%d, f=%p)\n",
+                p->pid, p->filter.filter[0], f);
 
             err = EINVAL;
             if(p->flags & DMX_ONESHOT) {
@@ -931,9 +874,10 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
                 ERR("invalid pid: %hu\n",p->pid);
                 break;
             }
-            if(sms1xxx_demux_pid2filtnr(sc, p->pid) >= 0) {
-                ERR("pid (or PIDALL) already set: %hu\n",p->pid);
-                break;
+            /* cancel previous filter, if any */
+            if(pid_value(f->pid) <= PIDMAX) {
+                sc->device->pid_filter(sc,pid_value(f->pid),0);
+                sms1xxx_demux_stop(sc,f);
             }
 
             /* XXX p->timeout */
@@ -961,15 +905,20 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
             break;
         }
     case DMX_START:
-        err = sc->device->pid_filter(sc,f->pid & ~PIDSTOPPED,1);
+        if(pid_value(f->pid) > PIDMAX)
+            err = EINVAL;
+        if(!err)
+            err = sc->device->pid_filter(sc,pid_value(f->pid),1);
         if(!err)
             err = sms1xxx_demux_start(sc,f);
         TRACE(TRACE_IOCTL,"DMX_START=%d\n",err);
         break;
     case DMX_STOP:
-        err = sc->device->pid_filter(sc,f->pid,0);
-        if(!err)
-            err = sms1xxx_demux_stop(sc,f);
+        if(pid_value(f->pid) <= PIDMAX) {
+            err = sc->device->pid_filter(sc,pid_value(f->pid),0);
+            if(!err)
+                err = sms1xxx_demux_stop(sc,f);
+        }
         TRACE(TRACE_IOCTL,"DMX_STOP=%d\n",err);
         break;
     case FIONBIO:
@@ -1036,8 +985,7 @@ sms1xxx_demux_init(struct sms1xxx_softc *sc)
     /* Filters */
     int i;
     for(i = 0; i < MAX_FILTERS; ++i) {
-        sc->filter[i].dev = NULL;
-        sc->filter[i].pid = PIDFREE;
+        sms1xxx_demux_filter_release(&sc->filter[i]);
     }
 
     /* Devices */
@@ -1083,15 +1031,17 @@ sms1xxx_demux_exit(struct sms1xxx_softc *sc)
     /* Destroy remaining clones */
     for(int i = 0; i < MAX_FILTERS; ++i) {
         if((sc->filter[i].pid != PIDFREE) &&
-        (sc->filter[i].dev != NULL)) {
+            (sc->filter[i].dev != NULL)) {
             TRACE(TRACE_MODULE,"destroying demux0.%d device, addr=%p\n",
                 i,sc->filter[i].dev);
-            destroy_dev_sched(sc->filter[i].dev);
+            destroy_dev_sched_cb(sc->filter[i].dev,
+                sms1xxx_demux_filter_release, &sc->filter[i]);
         }
     }
     if(sc->demux_clones != NULL) {
         drain_dev_clone_events();
         clone_cleanup(&sc->demux_clones);
+        destroy_dev_drain(&sms1xxx_demux_cdevsw);
         sc->demux_clones = NULL;
     }
 

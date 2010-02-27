@@ -35,7 +35,7 @@
 #define PACKET_SIZE 188
 
 #define TS_HAS_SYNC(p) (((p)[0]) == 0x47)
-#define TS_GET_PID(p) (((((u16)((p)[1])) << 8)|((p)[2])) & PIDMAX)
+#define TS_GET_PID(p) (((((u16)((p)[1])) << 8)|((p)[2])) & PIDMAX_TS)
 #define TS_GET_CC(p) (((p)[3]) & 0xF)
 #define TS_HAS_PAYLOAD(p) (((p)[3]) & 0x10)
 #define TS_GET_HDR_LEN(p) ((((p)[3]) & 0x20) ? (((p)[4]) + 5) : (4))

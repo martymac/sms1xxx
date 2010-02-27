@@ -1,0 +1,132 @@
+.\" SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
+.\"
+.\" Copyright (C) 2008-2010, Ganaël Laplanche, http://contribs.martymac.org
+.\"
+.\" This driver contains code taken from the FreeBSD dvbusb driver:
+.\"
+.\" Copyright (C) 2006-2007, Raaf
+.\" Copyright (C) 2004-2006, Patrick Boettcher
+.\"
+.\" This driver contains code taken from the Linux siano driver:
+.\"
+.\" Siano Mobile Silicon, Inc.
+.\" MDTV receiver kernel modules.
+.\" Copyright (C) 2006-2009, Uri Shkolnik
+.\"
+.\" This program is free software; you can redistribute it and/or modify
+.\" it under the terms of the GNU General Public License version 2 as
+.\" published by the Free Software Foundation;
+.\"
+.\" Software distributed under the License is distributed on an "AS IS"
+.\" basis, WITHOUT WARRANTY OF ANY KIND, either express or implied.
+.\"
+.\" See the GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public License
+.\" along with this program; if not, write to the Free Software
+.\" Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+.\"
+.Dd February 23, 2010
+.Dt SMS1XXX 4
+.Os
+.Sh NAME
+.Nm sms1xxx
+.Nd "Siano DVB-T USB driver for FreeBSD 8.0 and higher"
+.Sh SYNOPSIS
+To load the driver at boot time, place the
+following line in
+.Xr loader.conf 5 :
+.Bd -literal -offset indent
+sms1xxx_load="YES"
+.Ed
+.Pp
+Also, do not forget to load your firmware module.
+.Sh DESCRIPTION
+The
+.Nm
+module is a native driver for Siano-based DVB-T USB devices released under
+the GPL v2.0 license. It should work on any version of FreeBSD >= 8.0.
+.Pp
+It is a port of linux' sms1xxx driver (see drivers/media/dvb/siano
+in the kernel source tree), initially from Linux kernel v.2.6.27.
+The FreeBSD version of the driver is based on the great dvbusb driver
+written by Raaf.
+.Sh HARDWARE
+The
+.Nm
+driver has been successfully tested with the following devices:
+.Pp
+.Bl -bullet -compact
+.It
+Terratec Cinergy Piranha
+.It
+Hauppauge WinTV MiniStick (HD)
+.El
+.Pp
+Other Siano-based devices should work, just give a try (you will need to edit
+the sources and add new VIDs/PIDs to make your device detected).
+.El
+.Sh TUNING
+.Pp
+Some sysctls are available for your convenience.
+.Pp
+Global sysctls :
+.Bl -bullet -compact
+.Pp
+.It
+hw.usb.sms1xxx.freq_offset: Global frequency offset (Hz)
+.Pp
+This sysctl will apply a global offset each time a tuning is performed.
+166000 is necessary for Paris (France). It may or may not be necessary to
+change that value, depending on where you live and the kind of hardware
+you use.
+.Pp
+.It
+hw.usb.sms1xxx.requested_mode: Requested mode
+(0=DVB-T, 1=DVB-H, 2=DAB/T-DMB, 4=DVB-T/BDA, 5=ISDBT, 6=ISDBT/BDA)
+.Pp
+This sysctl is the mode that will be requested when plugging the next device.
+You must have loaded the corresponding firmware module.
+Please note that currently, only DVB-T (mode 4) is supported
+(this is the default mode).
+.El
+.Pp
+Per-device sysctls :
+.Bl -bullet -compact
+.Pp
+.It
+dev.sms1xxx.n.mode: Current running mode (read-only)
+.Pp
+This sysctl represents the current running mode.
+.Pp
+.It
+dev.sms1xxx.n.ir_module_started: IR module started (read-only)
+.Pp
+If an IR module is available and sucessfully started, this sysctl will
+be set to 1.
+.Pp
+.It
+dev.sms1xxx.n.use_lna: Use LNA before tuning
+.Pp
+If LNA (Low Noise Amplifier) handling is supported by your device, this sysctl
+will appear. Setting it to 1 will make the driver turn LNA on before each tuning
+request. See the sysctl's description for more details.
+.Pp
+.It
+hw.usb.sms1xxx.debug: Debug level (debug-only)
+.Pp
+This sysctl is an or-able value representing requested debug message levels.
+.Pp
+.It
+dev.sms1xxx.n.led_status: Set status LEDs (debug-only)
+.Pp
+You can check if your device supports LEDs handling by buildind the driver
+with debug support and check if this sysctl appears once the device is
+plugged in. This sysctl can be used to test LEDs by setting it to special
+values. See the sysctl's description for more details.
+.El
+.Sh SEE ALSO
+See the README file provided with the driver for more details.
+.Sh AUTHORS
+This driver has been written by
+.An Ganaël Laplanche (http://contribs.martymac.org).
