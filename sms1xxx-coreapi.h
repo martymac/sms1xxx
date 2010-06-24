@@ -213,7 +213,7 @@ struct SmsFirmware_ST {
     u8  Payload[1];
 };
 
-struct SMSHOSTLIB_STATISTICS_S {
+struct SMSHOSTLIB_STATISTICS_ST {
     u32 Reserved;           /* Reserved */
 
     /* Common parameters */
@@ -310,7 +310,7 @@ struct SMSHOSTLIB_STATISTICS_S {
 struct SmsMsgStatisticsInfo_ST {
     u32 RequestResult;
 
-    struct SMSHOSTLIB_STATISTICS_S Stat;
+    struct SMSHOSTLIB_STATISTICS_ST Stat;
 
     /* Split the calc of the SNR in DAB */
     u32 Signal; /* dB */

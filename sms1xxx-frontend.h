@@ -37,9 +37,9 @@ void sms1xxx_frontend_exit(struct sms1xxx_softc *);
 
 int sms1xxx_frontend_read_status(struct sms1xxx_softc *, fe_status_t *);
 int sms1xxx_frontend_read_ber(struct sms1xxx_softc *, u32 *);
-int sms1xxx_frontend_read_ucblocks(struct sms1xxx_softc *, u32 *);
 int sms1xxx_frontend_read_signal_strength(struct sms1xxx_softc *, u16 *);
 int sms1xxx_frontend_read_snr(struct sms1xxx_softc *, u16 *);
+int sms1xxx_frontend_read_ucblocks(struct sms1xxx_softc *, u32 *);
 int sms1xxx_frontend_set_frontend(struct sms1xxx_softc *,
     struct dvb_frontend_parameters *);
 int sms1xxx_frontend_get_frontend(struct sms1xxx_softc *,

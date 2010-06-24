@@ -244,10 +244,10 @@ int
 sms1xxx_frontend_read_status(struct sms1xxx_softc *sc, fe_status_t *status)
 {
     TRACE(TRACE_IOCTL,"\n");
-    int err = 0;
-    if ((sc->sc_type & SMS1XXX_FAMILY_MASK) == SMS1XXX_FAMILY1)
-        err = sms1xxx_usb_getstatistics(sc);
-    if(!err) *status=sc->fe_status;
+    int err = sms1xxx_usb_getstatistics(sc);
+
+    *status=sc->fe_status;
+
     sms1xxx_frontend_status_led_feedback(sc);
     return (err);
 }
@@ -256,22 +256,10 @@ int
 sms1xxx_frontend_read_ber(struct sms1xxx_softc *sc, u32 *ber)
 {
     TRACE(TRACE_IOCTL,"\n");
-    int err = 0;
-    if ((sc->sc_type & SMS1XXX_FAMILY_MASK) == SMS1XXX_FAMILY1)
-        err = sms1xxx_usb_getstatistics(sc);
-    if(!err) *ber=sc->sms_stat_dvb.ReceptionData.BER;
-    sms1xxx_frontend_status_led_feedback(sc);
-    return (err);
-}
+    int err = sms1xxx_usb_getstatistics(sc);
 
-int
-sms1xxx_frontend_read_ucblocks(struct sms1xxx_softc *sc, u32 *ucblocks)
-{
-    TRACE(TRACE_IOCTL,"\n");
-    int err = 0;
-    if ((sc->sc_type & SMS1XXX_FAMILY_MASK) == SMS1XXX_FAMILY1)
-        err = sms1xxx_usb_getstatistics(sc);
-    if(!err) *ucblocks=sc->sms_stat_dvb.ReceptionData.ErrorTSPackets;
+    *ber=sc->sms_stat_dvb.ReceptionData.BER;
+
     sms1xxx_frontend_status_led_feedback(sc);
     return (err);
 }
@@ -280,17 +268,15 @@ int
 sms1xxx_frontend_read_signal_strength(struct sms1xxx_softc *sc, u16 *strength)
 {
     TRACE(TRACE_IOCTL,"\n");
-    int err = 0;
-    if ((sc->sc_type & SMS1XXX_FAMILY_MASK) == SMS1XXX_FAMILY1)
-        err = sms1xxx_usb_getstatistics(sc);
-    if(!err) {
-        if (sc->sms_stat_dvb.ReceptionData.InBandPwr < -95)
-            *strength = 0;
-        else if (sc->sms_stat_dvb.ReceptionData.InBandPwr > -29)
-            *strength = 100;
-        else
-            *strength = (sc->sms_stat_dvb.ReceptionData.InBandPwr + 95) * 3 / 2;
-    }
+    int err = sms1xxx_usb_getstatistics(sc);
+
+    if (sc->sms_stat_dvb.ReceptionData.InBandPwr < -95)
+        *strength = 0;
+    else if (sc->sms_stat_dvb.ReceptionData.InBandPwr > -29)
+        *strength = 100;
+    else
+        *strength = (sc->sms_stat_dvb.ReceptionData.InBandPwr + 95) * 3 / 2;
+
     sms1xxx_frontend_status_led_feedback(sc);
     return (err);
 }
@@ -299,10 +285,22 @@ int
 sms1xxx_frontend_read_snr(struct sms1xxx_softc *sc, u16 *snr)
 {
     TRACE(TRACE_IOCTL,"\n");
-    int err = 0;
-    if ((sc->sc_type & SMS1XXX_FAMILY_MASK) == SMS1XXX_FAMILY1)
-        err = sms1xxx_usb_getstatistics(sc);
-    if(!err) *snr=sc->sms_stat_dvb.ReceptionData.SNR;
+    int err = sms1xxx_usb_getstatistics(sc);
+
+    *snr=sc->sms_stat_dvb.ReceptionData.SNR;
+
+    sms1xxx_frontend_status_led_feedback(sc);
+    return (err);
+}
+
+int
+sms1xxx_frontend_read_ucblocks(struct sms1xxx_softc *sc, u32 *ucblocks)
+{
+    TRACE(TRACE_IOCTL,"\n");
+    int err = sms1xxx_usb_getstatistics(sc);
+
+    *ucblocks=sc->sms_stat_dvb.ReceptionData.ErrorTSPackets;
+
     sms1xxx_frontend_status_led_feedback(sc);
     return (err);
 }

@@ -221,18 +221,31 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
             sms1xxx_demux_pesbuf_reset(sc, 1, "channel zap");
             DLG_COMPLETE(sc->dlg_status, DLG_TUNE_DONE);
             break;
-        /* SMS1000 statistics message */
+        /* SMS1000 - triggered - statistics messages */
         case MSG_SMS_GET_STATISTICS_RES:
             TRACE(TRACE_USB_FLOW,"handling MSG_SMS_GET_STATISTICS_RES\n");
             struct SmsMsgStatisticsInfo_ST *p =
                 (struct SmsMsgStatisticsInfo_ST *)(phdr + 1);
+
             sc->sms_stat_dvb.ReceptionData.IsDemodLocked =
                 p->Stat.IsDemodLocked;
-            sc->sms_stat_dvb.ReceptionData.SNR = p->Stat.SNR;
-            sc->sms_stat_dvb.ReceptionData.BER = p->Stat.BER;
-            sc->sms_stat_dvb.ReceptionData.ErrorTSPackets =
-                p->Stat.BERErrorCount;
-            sc->sms_stat_dvb.ReceptionData.InBandPwr = p->Stat.InBandPwr;
+
+            if(sc->sms_stat_dvb.ReceptionData.IsDemodLocked) {
+                sc->sms_stat_dvb.ReceptionData.SNR = p->Stat.SNR;
+                sc->sms_stat_dvb.ReceptionData.BER = p->Stat.BER;
+                sc->sms_stat_dvb.ReceptionData.BERErrorCount =
+                    p->Stat.BERErrorCount;
+                sc->sms_stat_dvb.ReceptionData.InBandPwr = p->Stat.InBandPwr;
+                sc->sms_stat_dvb.ReceptionData.ErrorTSPackets =
+                    p->Stat.ErrorTSPackets;
+            }
+            else {
+                sc->sms_stat_dvb.ReceptionData.SNR = 0;
+                sc->sms_stat_dvb.ReceptionData.BER = 0;
+                sc->sms_stat_dvb.ReceptionData.BERErrorCount = 0;
+                sc->sms_stat_dvb.ReceptionData.InBandPwr = 0;
+                sc->sms_stat_dvb.ReceptionData.ErrorTSPackets = 0;
+            }
             stats_updated = 1;
             DLG_COMPLETE(sc->dlg_status, DLG_STAT_DONE);
             break;
@@ -444,7 +457,10 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
                 | FE_HAS_VITERBI | FE_HAS_SYNC | FE_HAS_LOCK;
 
         } else {
-            sc->fe_status = 0;
+            if (sc->sms_stat_dvb.ReceptionData.IsRfLocked)
+                sc->fe_status = FE_HAS_SIGNAL | FE_HAS_CARRIER;
+            else
+                sc->fe_status = 0;
         }
     }
 }
@@ -768,6 +784,7 @@ sms1xxx_usb_initdevice(struct sms1xxx_softc *sc, int mode)
     InitMsg.xMsgHeader.msgFlags = 0;
     InitMsg.msgData[0] = mode;
 
+    sms1xxx_endian_handle_tx_message(&InitMsg);
     return (sms1xxx_usb_write_and_wait(sc, (u8*)&InitMsg, sizeof(InitMsg),
         DLG_INIT_DONE, FRONTEND_TIMEOUT));
 }
@@ -866,8 +883,8 @@ sms1xxx_usb_getversion(struct sms1xxx_softc *sc)
     return sms1xxx_usb_write(sc, (u8*)&Msg, sizeof(Msg));
 }
 
-/* Get device statistics on SMS1000 (useless on
-   SMS11xx, since stats are regularly received
+/* Get device statistics
+   (on SMS11xx, stats are also regularly received
    in *_IND messages) */
 int
 sms1xxx_usb_getstatistics(struct sms1xxx_softc *sc)

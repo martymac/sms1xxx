@@ -1,13 +1,14 @@
 About this driver :
 *******************
 
-This is a driver for Siano-based DVB-T USB devices. It should work on any
-version of FreeBSD >= 8.0 (see older versions for FreeBSD 7.x).
+Sms1xxx is a native FreeBSD driver for Siano-based DVB-T USB devices.
+It should work on any version of FreeBSD >= 8.0 (see older versions
+for FreeBSD 7.x).
 
 It is a port of linux' sms1xxx driver (see drivers/media/dvb/siano
 in the Linux source tree), initially from Linux kernel v.2.6.27.
 
-This web page presents an initial version of the Linux driver :
+The following web page presents an initial version of the Linux driver :
 
 http://linuxtv.org/wiki/index.php/TerraTec_Cinergy_Piranha
 
@@ -17,7 +18,7 @@ The FreeBSD driver has been successfully tested with two devices :
 - Hauppauge WinTV MiniStick (HD)
 
 Other devices should work, just give a try (you will need to edit the
-sources and add new VIDs/PIDs to make your device detected).
+sms1xxx.c file and add new VIDs/PIDs to make your device detected).
 
 The FreeBSD version of the driver is based on the great dvbusb driver
 written by Raaf :
@@ -27,7 +28,15 @@ http://raaf.atspace.org/dvbusb
 with a few modifications to the demuxer (fixing issues with clones'
 management).
 
-It is released under the GPL v2.0 license.
+License / availability :
+************************
+
+The sms1xxx driver is released under the GPL v2.0 license.
+
+It is available on http://contribs.martymac.org and in the
+FreeBSD ports tree (multimedia/sms1xxx-kmod).
+
+This file explains how to install the driver from sources.
 
 Getting firmware files :
 ************************
@@ -65,11 +74,11 @@ mv SMS100x_DabTdmb.inp firmwares/stellar_dabtdmb/stellar_dabtdmb.fw
 
 Get the following file :
 
-http://www.wintvcd.co.uk/drivers/WinTV-MiniStick_4_2_10_27180_WHQL.zip
+http://www.wintvcd.co.uk/drivers/WinTV-MiniStick_4_2_26_28027_WHQL.zip
 
 Unpack the 2 firmware files :
 
-unzip -j WinTV-MiniStick_4_2_10_27180_WHQL.zip \
+unzip -j WinTV-MiniStick_4_2_26_28027_WHQL.zip \
  driver17/hcw17dvb.1b0 \
  driver17/hcw17isd.1b0
 
@@ -200,23 +209,24 @@ Other applications :
 * Kaffeine (multimedia/kaffeine) is a great KDE application and has a
   very nice, user-friendly interface, but it can be unstable sometimes.
 
-* vlc (multimedia/vlc) can be built with dvb support. Just
-  append --enable-dvb and --with-dvb=/path/to/sms1xxx-sources to
-  CONFIGURE_ARGS in the port's Makefile :
+* vlc (multimedia/vlc) natively supports DVB : just check the V4L option
+  before building the port.
 
-  CONFIGURE_ARGS+= [...] \
-              --enable-dvb \
-              --with-dvb=/path/to/sms1xxx-sources
+  Then, you should be able to watch TV by launching it this way :
 
-  Rebuild the port ; you should now be able to watch TV by launching vlc
-  this way :
-
-  vlc dvb:// --dvb-frequency=586166000 \
+  vlc dvb:// --dvb-frequency=562000000 \
     --dvb-adapter=0 \
     --dvb-bandwidth=8 \
-    --program=261
-  
+    --program=1543
+
   or by selecting the "open capture device" entry in the "media' menu.
+
+* mplayer (multimedia/mplayer) can also handle DVB devices.
+  Build the port with V4L support, then copy your channels.conf file to
+  /usr/local/etc/mplayer/. Now, launch Mplayer using the channel name
+  as URL, e.g. :
+
+  mplayer "dvb://ARTE"
 
 IR (infrared) support :
 ***********************
@@ -302,4 +312,4 @@ Author :
 ********
 
 This driver has been written by Ganaël Laplanche
-(http://contribs.martymac.org). Any comment is welcome !
+(ganael.laplanche@martymac.org). Any comment is welcome !

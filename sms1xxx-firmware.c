@@ -44,6 +44,7 @@
 #include "sms1xxx-coreapi.h"
 #include "sms1xxx-firmware.h"
 #include "sms1xxx-usb.h"
+#include "sms1xxx-endian.h"
 
 static int sms1xxx_firmware_load_family1(struct sms1xxx_softc *,
     const u8 *, u32);
@@ -155,28 +156,28 @@ sms1xxx_firmware_load_family2(struct sms1xxx_softc *sc, const u8 *data,
         mem_address = *(const u32*) &payload[20];
     }
 
-    struct SmsDataDownload_ST Msg;
-    struct SmsMsgHdr_ST *MsgHeader = (struct SmsMsgHdr_ST *) &Msg;
-    MsgHeader->msgType = MSG_SMS_DATA_DOWNLOAD_REQ;
-    MsgHeader->msgSrcId = 0;
-    MsgHeader->msgDstId = HIF_TASK;
-    MsgHeader->msgLength = 0;
-    MsgHeader->msgFlags = 0;
-
     while(datasize && (err == 0)) {
-        /* upload firmware using chunks <= SMS_MAX_PAYLOAD_SIZE */
+        /* Upload firmware using chunks <= SMS_MAX_PAYLOAD_SIZE */
         int payload_size = min((int) datasize, SMS_MAX_PAYLOAD_SIZE);
-        MsgHeader->msgLength = (u16)(sizeof(struct SmsMsgHdr_ST) +
-            sizeof(u32) + payload_size);
+
+        struct SmsDataDownload_ST Msg;
+        Msg.xMsgHeader.msgType = MSG_SMS_DATA_DOWNLOAD_REQ;
+        Msg.xMsgHeader.msgSrcId = 0;
+        Msg.xMsgHeader.msgDstId = HIF_TASK;
+        Msg.xMsgHeader.msgLength =
+            (u16)(sizeof(struct SmsMsgHdr_ST) + sizeof(u32) + payload_size);
+        Msg.xMsgHeader.msgFlags = 0;
+
         Msg.MemAddr = mem_address;
         memcpy(Msg.Payload, payload, payload_size);
 
         TRACE(TRACE_FIRMWARE, "sending firmware chunk, size=%d, "
             "remaining=%d\n", payload_size, datasize - payload_size);
 
+        sms1xxx_endian_handle_tx_message(&Msg);
         /* XXX honour SMS_ROM_NO_RESPONSE and use sms1xxx_usb_write() ? */
         err = sms1xxx_usb_write_and_wait(sc, (u8*)&Msg,
-            MsgHeader->msgLength, DLG_DATA_DOWNLOAD_DONE, FRONTEND_TIMEOUT);
+            Msg.xMsgHeader.msgLength, DLG_DATA_DOWNLOAD_DONE, FRONTEND_TIMEOUT);
 
         if(err == 0) {
             payload += payload_size;

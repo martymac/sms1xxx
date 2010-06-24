@@ -1,3 +1,10 @@
+20100624 ('What's for dinner ?'):
+    * Fixed build on big-endian architectures
+    * Functionalities Sync'ed with Linux kernel 2.6.34,
+      except ISDBT support
+    * Updated apps/conf/channels-Paris.conf
+    * Updated firmwares' distinfos (new firmwares available upstream)
+
 20100227 ('Let's play'):
     * Zapping bug with Mplayer fixed (thanks to Joerg Pulz !)
     * Better handling of special PID 0x2000
