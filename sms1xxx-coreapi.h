@@ -1,6 +1,6 @@
 /*  SMS1XXX - Siano DVB-T USB driver for FreeBSD 8.0 and higher:
  *
- *  Copyright (C) 2008-2010, Ganaël Laplanche, http://contribs.martymac.org
+ *  Copyright (C) 2008-2012, Ganaël Laplanche, http://contribs.martymac.org
  *
  *  This driver contains code taken from the FreeBSD dvbusb driver:
  *
@@ -41,7 +41,9 @@ typedef u_int8_t    u8;
 typedef u_int16_t   u16;
 typedef u_int32_t   u32;
 typedef int32_t     s32;
+#if !defined(__bool_true_false_are_defined)
 typedef boolean_t   bool;
+#endif
 
 /* Card flavours */
 /* Families */
