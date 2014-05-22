@@ -1,0 +1,179 @@
+About this driver :
+*******************
+
+This is a driver for the Terratec Cinergy Piranha DVB-T USB Dongle.
+It should work on FreeBSD >= 7.x.
+
+It is a port of the linux sms1xxx (siano) driver (drivers/media/dvb/siano
+in the Linux source tree), initially from the 2.6.27 Linux kernel.
+
+This web page presents an initial version of the Linux driver :
+
+http://linuxtv.org/wiki/index.php/TerraTec_Cinergy_Piranha
+
+The driver has been stripped from other devices support (the ones that
+have the SMS_DEVICE_FAMILY2 flag set), so a Siano SMS1XXX device working
+on Linux may (will) not work on FreeBSD. Only the Terratec Cinergy
+Piranha DVB-T USB Dongle has been tested.
+
+The FreeBSD version of the driver is based on the great dvbusb driver
+written by Raaf :
+
+http://raaf.atspace.org/dvbusb
+
+with a few modifications to the demuxer (fixing issues with clones'
+management).
+
+It is released under the GPL v2.0 license.
+
+Getting firmware files :
+************************
+
+Before using the driver, you have to get the official firmwares for your
+hardware, unpack and move them to each firmwares/* subdirectory.
+
+For the Terratec Cinergy Piranha USB key, get the following file :
+
+ftp://ftp.terratec.net/Receiver/Cinergy_Piranha/Update/Cinergy_Piranha_Drv_Vista_XP_3.09.02.00.exe
+
+Unpack the 3 firmware files :
+
+unzip -j Cinergy_Piranha_Drv_Vista_XP_3.09.02.00.exe \
+Cinergy\ Piranha/BDA\ Driver\ 3.09.02.00/Windos\ XP\ \(32Bit\)/SMS100x_Dvbt.inp \
+Cinergy\ Piranha/BDA\ Driver\ 3.09.02.00/Windos\ XP\ \(32Bit\)/SMS100x_Dvbh.inp \
+Cinergy\ Piranha/BDA\ Driver\ 3.09.02.00/Windos\ XP\ \(32Bit\)/SMS100x_DabTdmb.inp
+
+And move each file to its own directory :
+
+mv SMS100x_Dvbt.inp firmwares/SMS100x_Dvbt
+mv SMS100x_Dvbh.inp firmwares/SMS100x_Dvbh
+mv SMS100x_DabTdmb.inp firmwares/SMS100x_DabTdmb
+
+Each firmware will then be used to build a corresponding firmware module
+that will have to be loaded with the main kernel module.
+
+Building and installing everything :
+************************************
+
+Just do :
+
+make && make install
+
+4 kernel modules (3 firmware modules + the main driver) will be built
+and installed to /boot/modules.
+
+Loading and using the driver :
+******************************
+
+Run :
+kldload <your firmware module>
+e.g. :
+  kldload SMS100x_Dvbt
+  kldload SMS100x_Dvbh
+  kldload SMS100x_DabTdmb
+Depending on the mode you wish to run.
+Please note that currently, only DVB-T (mode 4) has been successfully tested
+(this is the default mode).
+
+Then, run : 
+kldload sms1xxx
+
+Finally, it might be necessary to tune a few sysctls :
+* hw.usb.sms1xxx.freq_offset: Global frequency offset (Hz)
+This sysctl will apply a global offset each time a tuning is performed.
+166000 is necessary for Paris (France). It may or may not be necessary to
+change that value, depending on where you live.
+* hw.usb.sms1xxx.requested_mode: Requested mode
+(0=DVB-T, 1=DVB-H, 2=DAB/T-DMB, 4=DVB-T/BDA)
+This sysctl is the mode that will be requested when plugging the device.
+You must have loaded the corresponding firmware in the previous step.
+
+Testing the driver :
+********************
+
+First, plug it (or it won't work :p). You can have a look at /var/log/messages
+and see what happens.
+
+If your device is detected and the firmware successfully loaded, it
+should re-attach in the requested mode and two device nodes should appear :
+/dev/dvb/adapter0/dvr0
+/dev/dvb/adapter0/frontend0
+They will be used by applications to interact with the device.
+
+While using the device, you will also see other nodes appear and disappear :
+/dev/dvb/adapter0/demux0.n
+They are dynamically created and destroyed when you have successfully tuned
+the device to a specific frequency and when a PID filter has been set.
+
+Once everything works, you will have to scan for channels. See the following
+paragraph to build the w_scan and the scan utilities.
+
+(if nothing works, you can try to build the module using 'make debug' and
+tune the 'debug' sysctl to produce more logging).
+
+Building applications :
+***********************
+
+The driver is provided with a few applications :
+w_scan-20081106     : searches for channels (initial or full search)
+scan-dvb-apps-1.1.1 : searches for channels (using an initial frequency list)
+tzap-dvb-apps-1.1.1 : tunes to a specific channel
+
+There is also a conf/ directory which contains my configuration files. They
+are suitable for France (Paris) and need a freq_offset set to 166000.
+
+To build an utility, go into its directory and type 'gmake'.
+
+See apps/README for more details.
+
+Using your device :
+*******************
+
+First, perform an initial search using w_scan. It will generate a file
+containing frequencies airing on your location :
+
+cd w_scan-20081106 && ./w_scan -x > ../xx-MyCity
+(e.g. for me : ./w_scan -x > ../conf/fr-Paris)
+
+Then, scan for channels using the previous file and the scan utility :
+
+cd scan-dvb-apps-1.1.1 && ./scan ../xx-MyCity > ../channels.conf
+
+channels.conf now contains a list of channels you can watch.
+
+Then, tune the device to a specific channel :
+cd tzap-dvb-apps-1.1.1 && ./tzap -rc ../channels.conf "MYCHANNEL"
+
+Finally, you can view (or record) streamed data using the dvr0 device :
+mplayer /dev/dvb/adapter0/dvr0
+  or :
+dd if=/dev/dvb/adapter0/dvr0 of=mystream.ts
+
+Other applications :
+********************
+
+You can use xine to watch TV directly (without having to use tzap) :
+xine 'dvb://MYCHANNEL'
+
+Kaffeine does not work (yet ?), unfortunately :/
+
+Links :
+*******
+
+LinuxTV website :
+http://linuxtv.org
+
+Terratec Cinergy Piranha page on LinuxTV :
+http://linuxtv.org/wiki/index.php/TerraTec_Cinergy_Piranha
+
+Linux dvb API documentation :
+http://www.linuxtv.org/docs/dvbapi/Contents.html
+
+Raaf's original work for the dvbusb driver :
+http://raaf.atspace.org/dvbusb
+
+Author :
+********
+
+This driver has been written (ported ? hacked ?) by Ganaël Laplanche
+(http://contribs.martymac.com). Any comment is welcome !

@@ -1,0 +1,13 @@
+SUBDIR=	firmwares
+CLEANFILES=	machine @
+SRCS=bus_if.h device_if.h opt_usb.h \
+    sms1xxx-firmware.c \
+	sms1xxx-usb.c \
+	sms1xxx-frontend.c \
+	sms1xxx-demux.c \
+	sms1xxx.c
+KMOD=sms1xxx
+KMODDIR?=/boot/modules
+#DEBUG_FLAGS=-g -DUSB_DEBUG -DDIAGNOSTIC
+
+.include <bsd.kmod.mk>

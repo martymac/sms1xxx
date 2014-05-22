@@ -1,0 +1,13 @@
+Here are some tools that can be used to scan/tune DVB-T channels.
+
+* scan-dvb-apps-1.1.1 and tzap-dvb-apps-1.1.1 come from the linuxtv website.
+See : http://www.linuxtv.org/wiki/index.php/LinuxTV_dvb-apps
+
+* w_scan-20081106 comes from :
+http://wirbel.htpc-forum.de/w_scan/index2.html
+It is released under the GPL v2.0 license.
+
+Use gmake to compile them.
+
+* The conf/ directory contains French configuration files
+  (for Paris). They need freq_offset set to 166000.
