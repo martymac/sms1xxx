@@ -26,8 +26,8 @@ installkld:
 	${MAKE} -f Makefile.kld install
 
 installman:
-	${INSTALL_MAN} man/man4/sms1xxx.4 ${MANPREFIX}/man/man4
-	${GZIP_CMD} ${MANPREFIX}/man/man4/sms1xxx.4
+	${INSTALL_MAN} man/man4/sms1xxx.4 ${DESTDIR}${MANPREFIX}/man/man4
+	${GZIP_CMD} ${DESTDIR}${MANPREFIX}/man/man4/sms1xxx.4
 
 install: installkld installman
 
