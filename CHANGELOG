@@ -1,3 +1,6 @@
+2014????
+    * Updated DVB API headers to 5.10 (Linux kernel 3.14)
+
 20120113 ('Mummy, Daddy, let's sing !'):
     * Functionnalities Sync'ed with Linux kernel 3.2.1 (no functional changes)
     * Added linux/input.h (for future use ?)
