@@ -51,7 +51,7 @@
 #include "sms1xxx-usb.h"
 
 /* Linux stuff */
-#include "uapi/linux/dvb/dmx.h"
+#include "linux/dvb/dmx.h"
 
 /********************************
  * Dvr (private functions only) *

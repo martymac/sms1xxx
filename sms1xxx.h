@@ -56,7 +56,8 @@
 #include "sms1xxx-gpio.h"
 
 /* Linux stuff */
-#include "uapi/linux/dvb/frontend.h"
+#include "linux/dvb/frontend.h"
+#include "dvb_frontend.h"
 
 /* sysctl(9) defaults */
 #ifndef SMS1XXX_DEFAULT_FREQ_OFFSET

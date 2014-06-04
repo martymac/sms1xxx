@@ -44,7 +44,7 @@
 #include "sms1xxx-frontend.h"
 
 /* Linux stuff */
-#include "uapi/linux/dvb/frontend.h"
+#include "linux/dvb/frontend.h"
 
 static d_open_t  sms1xxx_frontend_open;
 static d_close_t sms1xxx_frontend_close;

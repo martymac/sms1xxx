@@ -278,14 +278,6 @@ struct dvb_frontend_parameters {
 	} u;
 };
 
-/* XXX FreeBSD/Sms1xxx - Imported from drivers/media/dvb-core/dvb_frontend.h */
-struct dvb_frontend_tune_settings {
-    int min_delay_ms;
-    int step_size;
-    int max_drift;
-};
-/* XXX End of import */
-
 struct dvb_frontend_event {
 	fe_status_t status;
 	struct dvb_frontend_parameters parameters;
