@@ -1,5 +1,5 @@
 Here are some tools that can be used to scan/tune DVB-T channels.
-For each tool, un-tar its archive and use 'gmake' to compile it.
+For each tool, use 'gmake' to compile it.
 
 * scan-dvb-apps and tzap-dvb-apps come from the linuxtv website :
 http://www.linuxtv.org/wiki/index.php/LinuxTV_dvb-apps
