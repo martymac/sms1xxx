@@ -127,7 +127,7 @@ void add_pat(pat_t pat) {
     t=pats;
     found=0;
     while ((!found) && (t!=NULL)) {
-       if ((t->service_id==pat.service_id)) {
+       if (t->service_id==pat.service_id) {
           found=1;
        } else {
          t=t->next;
@@ -1011,7 +1011,8 @@ int main(int argc, char **argv)
   }
 
   if (do_monitor) {
-        int32_t strength, ber, snr, uncorr;
+        int32_t strength, snr;
+        uint32_t ber, uncorr;
         fe_status_t festatus;
 
         if((fd_frontend = open(frontenddev[card],O_RDONLY|O_NONBLOCK)) < 0){

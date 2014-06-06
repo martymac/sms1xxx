@@ -129,5 +129,6 @@ do_options(int arg_count, char** arg_strings)
 	  exit(1);
 	}
     }
+    return 0;
 }
  

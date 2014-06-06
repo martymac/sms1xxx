@@ -106,7 +106,6 @@ static int do_diseqc(int fd, unsigned char sat_no, int polv, int hi_lo)
     }
     else 	//only tone and voltage
     {
-	fe_sec_voltage_t voltage;
 	
 	fprintf(stderr, "Setting only tone %s and voltage %dV\n", (hi_lo ? "ON" : "OFF"), (polv ? 13 : 18));
 	
@@ -206,7 +205,7 @@ int check_status(int fd_frontend,int type, struct dvb_frontend_parameters* fepar
 
 int tune_it(int fd_frontend, unsigned int freq, unsigned int srate, char pol, int tone, fe_spectral_inversion_t specInv, unsigned char diseqc,fe_modulation_t modulation,fe_code_rate_t HP_CodeRate,fe_transmit_mode_t TransmissionMode,fe_guard_interval_t guardInterval, fe_bandwidth_t bandwidth) {
   int res, hi_lo, dfd;
-  unsigned int base;
+  unsigned int base = 0;
   struct dvb_frontend_parameters feparams;
   struct dvb_frontend_info fe_info;
 
@@ -246,6 +245,7 @@ int tune_it(int fd_frontend, unsigned int freq, unsigned int srate, char pol, in
       } 
       } else {
           feparams.frequency=freq;
+	  hi_lo = 0;
 	  base = 0;
       }
 

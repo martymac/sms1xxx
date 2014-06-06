@@ -55,7 +55,7 @@
  * return the DTT time in UNIX time_t format
  */
 
-time_t convert_date(char *dvb_buf)
+time_t convert_date(unsigned char *dvb_buf)
 {
   int i;
   int year, month, day, hour, min, sec;
@@ -111,7 +111,7 @@ time_t scan_date() {
   t = 0;
   if((fd_date = open(DVB_DEMUX_DEVICE,O_RDWR|O_NONBLOCK)) < 0){
       perror("fd_date DEVICE: ");
-      return -1;
+      return 0;
   }
 
   sctFilterParams.pid=0x14;
@@ -125,7 +125,7 @@ time_t scan_date() {
   if (ioctl(fd_date,DMX_SET_FILTER,&sctFilterParams) < 0) {
     perror("DATE - DMX_SET_FILTER:");
     close(fd_date);
-    return -1;
+    return 0;
   }
 
   ufd.fd=fd_date;
@@ -133,7 +133,7 @@ time_t scan_date() {
   if (poll(&ufd,1,10000) < 0) {
      errmsg("TIMEOUT reading from fd_date\n");
      close(fd_date);
-     return;
+     return 0;
   }
   if (read(fd_date,buf,3)==3) {
     seclen=((buf[1] & 0x0f) << 8) | (buf[2] & 0xff);
@@ -142,11 +142,11 @@ time_t scan_date() {
       t = convert_date(&(buf[3]));
     } else {
       errmsg("Under-read bytes for DATE - wanted %d, got %d\n",seclen,n);
-      exit(1);
+      return 0;
     }
   } else {
     errmsg("Nothing to read from fd_date - try tuning to a multiplex?\n");
-    exit(1);
+    return 0;
   }
   close(fd_date);
   return(t);
@@ -169,6 +169,7 @@ int set_time(time_t *new_time)
     perror("Unable to set time");
     exit(1);
   }
+  return 0;
 }
 
 
@@ -205,7 +206,7 @@ int main(int argc, char **argv)
   if (do_print) {
     fprintf(stdout, "System time: %s", ctime(&real_time));
     fprintf(stdout, "   DTT time: %s", ctime(&dvb_time));
-    fprintf(stdout, "     Offset: %d seconds\n", offset);
+    fprintf(stdout, "     Offset: %ld seconds\n", offset);
   } else if (!do_quiet) {
     fprintf(stdout, "%s", ctime(&dvb_time));
   }

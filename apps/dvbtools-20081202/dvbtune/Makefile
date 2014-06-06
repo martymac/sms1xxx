@@ -1,10 +1,8 @@
-INCS=-I/usr/local/include/libxml2
-CFLAGS= -Wall $(INCS)
+CC?=gcc
+CFLAGS=-Wall
+CPPFLAGS=-D__user= -I../../../linux/include -I../../../linux/include/uapi
 LDFLAGS=-L/usr/local/lib -lxml2
-CC=gcc
 all: dvbtune
-
-INCS += -I../DVB/include -I../../../include
 
 ifdef UK
   CFLAGS += -DUK
