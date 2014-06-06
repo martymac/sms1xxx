@@ -1,6 +1,5 @@
-
-CC = gcc
-CFLAGS = -MD -g -Wall -O2 -I../../include
+CC ?= gcc
+CFLAGS = -MD -g -Wall -O2 -I../../linux/include -I../../linux/include/uapi
 LFLAGS = -g -Wall
 
 OBJS = dump-vdr.o dump-xine.o dump-dvbscan.o dump-kaffeine.o scan.o section.o atsc_psip_section.o
