@@ -36,4 +36,6 @@ typedef int32_t __s32;
 typedef int16_t __s16;
 typedef int8_t __s8;
 
+typedef time_t __kernel_time_t;
+
 #endif
