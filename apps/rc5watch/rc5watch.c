@@ -107,7 +107,7 @@ rc5_parse_word(void)
     #define RC5_ADDR(x)     (((x)>>6)&0x1F)
     #define RC5_INSTR(x)    ((x)&0x3F)
 
-    int i, j;
+    int i, j = 0;
     uint32_t rc5_word = 0;
 
     /* Reverse the IR word direction */
