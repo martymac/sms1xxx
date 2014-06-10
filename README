@@ -168,7 +168,7 @@ rc5watch      : displays IR codes sent by the remote controller (see below)
 There is also a conf/ directory which contains my configuration files. They
 are suitable for France (Paris) and need a freq_offset set to 166000.
 
-To build an utility, extract it, go into its directory and use 'gmake'.
+To build an utility, go into its directory and use 'gmake'.
 
 See apps/README for more details.
 
