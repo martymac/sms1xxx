@@ -44,7 +44,7 @@
 #define TRACE_USB_FLOW  0x0100
 #define TRACE_USB_DUMP  0x0200
 #define TRACE_FIRMWARE  0x0400
-#define TRACE_CC        0x0800
+#define TRACE_FRONTEND  0x0800
 #define TRACE_SECT      0x1000
 #define TRACE_FILTERS   0x2000
 #define TRACE_IR        0x4000
