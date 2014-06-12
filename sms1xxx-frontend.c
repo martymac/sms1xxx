@@ -310,6 +310,8 @@ sms1xxx_frontend_set_frontend(struct sms1xxx_softc *sc,
     struct dvb_frontend_parameters *fep)
 {
     TRACE(TRACE_IOCTL,"\n");
+    memcpy(&sc->fe_params, fep,
+        sizeof(struct dvb_frontend_parameters));
     return (sms1xxx_usb_setfrequency(
         sc,
         fep->frequency + sc->device->freq_offset,
