@@ -211,7 +211,8 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
 }
 
 /* Change status LED state on a frontend event */
-static inline int sms1xxx_frontend_status_led_feedback(struct sms1xxx_softc *sc)
+static inline int
+sms1xxx_frontend_status_led_feedback(struct sms1xxx_softc *sc)
 {
     if (sc->fe_status & FE_HAS_LOCK)
         return sms1xxx_gpio_status_led_feedback(
@@ -222,6 +223,9 @@ static inline int sms1xxx_frontend_status_led_feedback(struct sms1xxx_softc *sc)
         return sms1xxx_gpio_status_led_feedback(sc, SMS_LED_OFF);
 }
 
+static int
+sms1xxx_frontend_clear_cache(struct sms1xxx_softc *sc);
+
 /********************
  * Public functions *
  ********************/
@@ -229,6 +233,11 @@ static inline int sms1xxx_frontend_status_led_feedback(struct sms1xxx_softc *sc)
 void
 sms1xxx_frontend_init(struct sms1xxx_softc *sc)
 {
+    /* Initialize the cache to the proper values */
+    /* XXX Force DVB-T */
+    sc->dtv_property_cache.delivery_system = SYS_DVBT;
+    sms1xxx_frontend_clear_cache(sc);
+
     sc->frontenddev = make_dev(&sms1xxx_frontend_cdevsw,
         device_get_unit(sc->sc_dev),
         UID_ROOT, GID_WHEEL, 0666,
@@ -236,6 +245,7 @@ sms1xxx_frontend_init(struct sms1xxx_softc *sc)
         device_get_unit(sc->sc_dev));
     if (sc->frontenddev != NULL)
         sc->frontenddev->si_drv1 = sc;
+
     TRACE(TRACE_MODULE,"created frontend0 device, addr=%p\n",sc->frontenddev);
 }
 
