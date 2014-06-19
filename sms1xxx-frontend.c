@@ -143,8 +143,8 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
 
     switch(cmd) {
         case FE_GET_INFO:
-            TRACE(TRACE_IOCTL,"FE_GET_INFO\n");
             memcpy(arg,&fe->info, sizeof(struct dvb_frontend_info));
+            TRACE(TRACE_IOCTL,"FE_GET_INFO\n");
             break;
         case FE_READ_STATUS:
             err = fe->read_status(sc,(fe_status_t*)arg);
@@ -156,7 +156,7 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
             break;
         case FE_READ_UNCORRECTED_BLOCKS:
             err = fe->read_ucblocks(sc,(u32*)arg);
-            TRACE(TRACE_IOCTL,"FE_READ_UNCORRECTED_BLOCKS\n");
+            TRACE(TRACE_IOCTL,"FE_READ_UNCORRECTED_BLOCKS=%d\n",err);
             break;
         case FE_READ_SIGNAL_STRENGTH:
             err = fe->read_signal_strength(sc,(u16*)arg);
@@ -172,7 +172,7 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
             break;
         case FE_GET_FRONTEND:
             err = fe->get_frontend(sc,(struct dvb_frontend_parameters *)arg);
-            TRACE(TRACE_IOCTL,"FE_GET_FRONTEND\n");
+            TRACE(TRACE_IOCTL,"FE_GET_FRONTEND=%d\n",err);
             break;
         case FE_GET_EVENT:
             {
@@ -190,11 +190,11 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
             }
         case FE_SET_PROPERTY:
             err = fe->set_property(sc,(struct dtv_properties *)arg);
-            TRACE(TRACE_IOCTL,"FE_SET_PROPERTY\n");
+            TRACE(TRACE_IOCTL,"FE_SET_PROPERTY=%d\n",err);
             break;
         case FE_GET_PROPERTY:
             err = fe->get_property(sc,(struct dtv_properties *)arg);
-            TRACE(TRACE_IOCTL,"FE_GET_PROPERTY\n");
+            TRACE(TRACE_IOCTL,"FE_GET_PROPERTY=%d\n",err);
             break;
         case FIOASYNC:
             TRACE(TRACE_IOCTL,"FIOASYNC\n");
@@ -415,18 +415,15 @@ static int
 sms1xxx_frontend_clear_cache(struct sms1xxx_softc *sc)
 {
     struct dtv_frontend_properties *c = &sc->dtv_property_cache;
-    int i;
-    u32 delsys;
-
-    delsys = c->delivery_system;
-    memset(c, 0, offsetof(struct dtv_frontend_properties, strength));
-    c->delivery_system = delsys;
-
-    c->state = DTV_CLEAR;
 
     TRACE(TRACE_FRONTEND,"Clearing cache for delivery system %d\n",
         c->delivery_system);
 
+    u32 delsys = c->delivery_system;
+    memset(c, 0, offsetof(struct dtv_frontend_properties, strength));
+
+    c->delivery_system = delsys;
+    c->state = DTV_CLEAR;
     c->transmission_mode = TRANSMISSION_MODE_AUTO;
     c->bandwidth_hz = 0;    /* AUTO */
     c->guard_interval = GUARD_INTERVAL_AUTO;
@@ -446,7 +443,8 @@ sms1xxx_frontend_clear_cache(struct sms1xxx_softc *sc)
     c->isdbt_sb_segment_idx = 0;
     c->isdbt_sb_segment_count = 0;
     c->isdbt_layer_enabled = 0;
-    for (i = 0; i < 3; i++) {
+
+    for (int i = 0; i < 3; i++) {
         c->layer[i].fec = FEC_AUTO;
         c->layer[i].modulation = QAM_AUTO;
         c->layer[i].interleaving = 0;
@@ -481,6 +479,9 @@ static int
 sms1xxx_frontend_fep_to_c(const struct dvb_frontend_parameters *p,
     struct dtv_frontend_properties *c)
 {
+    TRACE(TRACE_FRONTEND,"Converting (legacy) dvb_frontend_parameters to "
+        "(new) dtv_frontend_properties cache\n");
+
     c->frequency = p->frequency;
     c->inversion = p->inversion;
 
@@ -548,6 +549,9 @@ static int
 sms1xxx_frontend_c_to_fep(const struct dtv_frontend_properties *c,
     struct dvb_frontend_parameters *p)
 {
+    TRACE(TRACE_FRONTEND,"Converting (new) dtv_frontend_properties cache to "
+        "(legacy) dvb_frontend_parameters\n");
+
     p->frequency = c->frequency;
     p->inversion = c->inversion;
 
@@ -609,6 +613,8 @@ static int
 sms1xxx_frontend_set_single_property(struct sms1xxx_softc *sc,
     struct dtv_property *tvp)
 {
+    TRACE(TRACE_FRONTEND,"Setting single property, cmd=%d\n", tvp->cmd);
+
     int err = 0;
     struct dtv_frontend_properties *c = &sc->dtv_property_cache;
 
@@ -703,6 +709,8 @@ static int
 sms1xxx_frontend_get_single_property(struct sms1xxx_softc *sc,
     struct dtv_property *tvp)
 {
+    TRACE(TRACE_FRONTEND,"Getting single property, cmd=%d\n", tvp->cmd);
+
     int err = 0;
     struct dtv_frontend_properties *c = &sc->dtv_property_cache;
 
@@ -794,7 +802,8 @@ sms1xxx_frontend_get_single_property(struct sms1xxx_softc *sc,
             tvp->u.st = c->block_count;
             break;
         default:
-            TRACE(TRACE_FRONTEND,"Unsupported frontend property (%d)\n", tvp->cmd);
+            TRACE(TRACE_FRONTEND,"Unsupported frontend property (%d)\n",
+                tvp->cmd);
             err = EINVAL;
     }
 
@@ -807,7 +816,8 @@ int
 sms1xxx_frontend_set_properties(struct sms1xxx_softc *sc,
     struct dtv_properties *parg)
 {
-    TRACE(TRACE_IOCTL,"\n");
+    TRACE(TRACE_FRONTEND,"Setting %d properties\n", parg->num);
+
     struct dtv_property *tvp = parg->props;
     struct dtv_frontend_properties *c = &sc->dtv_property_cache;
     int err = 0;
@@ -845,7 +855,8 @@ int
 sms1xxx_frontend_get_properties(struct sms1xxx_softc *sc,
     struct dtv_properties *parg)
 {
-    TRACE(TRACE_IOCTL,"\n");
+    TRACE(TRACE_FRONTEND,"Getting %d properties\n", parg->num);
+
     struct dtv_property *tvp = parg->props;
     int err = 0;
     int i;
