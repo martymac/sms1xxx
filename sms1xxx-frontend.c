@@ -808,7 +808,7 @@ sms1xxx_frontend_set_properties(struct sms1xxx_softc *sc,
     struct dtv_properties *parg)
 {
     TRACE(TRACE_IOCTL,"\n");
-    struct dtv_property *tvp = NULL;
+    struct dtv_property *tvp = parg->props;
     struct dtv_frontend_properties *c = &sc->dtv_property_cache;
     int err = 0;
     int i;
@@ -818,23 +818,12 @@ sms1xxx_frontend_set_properties(struct sms1xxx_softc *sc,
     if ((parg->num == 0) || (parg->num > DTV_IOCTL_MAX_MSGS))
         return (EINVAL);
 
-    tvp = malloc(parg->num * sizeof(struct dtv_property), M_USBDEV, M_WAITOK);
-    if (tvp == NULL) {
-        return (ENOMEM);
-    }
-
-    memcpy(tvp, parg->props, parg->num * sizeof(struct dtv_property));
     for (i = 0; i < parg->num; i++) {
         err = sms1xxx_frontend_set_single_property(sc, tvp + i);
         (tvp + i)->result = err;
-        if (err != 0) {
-            memcpy(parg->props, tvp, parg->num * sizeof(struct dtv_property));
-            free(tvp, M_USBDEV);
+        if (err != 0)
             return (err);
-        }
     }
-    memcpy(parg->props, tvp, parg->num * sizeof(struct dtv_property));
-    free(tvp, M_USBDEV);
 
     /* Check cache state and tune if DTV_TUNE property has been set */
     if (c->state == DTV_TUNE) {
@@ -857,7 +846,7 @@ sms1xxx_frontend_get_properties(struct sms1xxx_softc *sc,
     struct dtv_properties *parg)
 {
     TRACE(TRACE_IOCTL,"\n");
-    struct dtv_property *tvp = NULL;
+    struct dtv_property *tvp = parg->props;
     int err = 0;
     int i;
 
@@ -866,23 +855,12 @@ sms1xxx_frontend_get_properties(struct sms1xxx_softc *sc,
     if ((parg->num == 0) || (parg->num > DTV_IOCTL_MAX_MSGS))
         return (EINVAL);
 
-    tvp = malloc(parg->num * sizeof(struct dtv_property), M_USBDEV, M_WAITOK);
-    if (tvp == NULL) {
-        return (ENOMEM);
-    }
-
-    memcpy(tvp, parg->props, parg->num * sizeof(struct dtv_property));
     for (i = 0; i < parg->num; i++) {
         err = sms1xxx_frontend_get_single_property(sc, tvp + i);
         (tvp + i)->result = err;
-        if (err != 0) {
-            memcpy(parg->props, tvp, parg->num * sizeof(struct dtv_property));
-            free(tvp, M_USBDEV);
+        if (err != 0)
             return (err);
-        }
     }
-    memcpy(parg->props, tvp, parg->num * sizeof(struct dtv_property));
-    free(tvp, M_USBDEV);
 
     return (0);
 }
