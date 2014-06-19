@@ -67,6 +67,8 @@ struct sms1xxx_frontend frontend = {
 
     .set_frontend = sms1xxx_frontend_set_frontend,
     .get_frontend = sms1xxx_frontend_get_frontend,
+    .set_property = sms1xxx_frontend_set_properties,
+    .get_property = sms1xxx_frontend_get_properties,
     .get_tune_settings = sms1xxx_frontend_get_tune_settings,
 
     .read_status = sms1xxx_frontend_read_status,

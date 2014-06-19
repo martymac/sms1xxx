@@ -1,5 +1,6 @@
 2014????
     * Updated DVB API headers to 5.10 (Linux kernel 3.14)
+    * Add support FE_SET_PROPERTY and FE_GET_PROPERTY (DVBv5)
 
 20120113 ('Mummy, Daddy, let's sing !'):
     * Functionnalities Sync'ed with Linux kernel 3.2.1 (no functional changes)

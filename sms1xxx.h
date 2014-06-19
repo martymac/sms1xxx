@@ -85,6 +85,10 @@ struct sms1xxx_frontend {
         struct dvb_frontend_parameters *params);
     int(*get_frontend)(struct sms1xxx_softc *sc,
         struct dvb_frontend_parameters *params);
+    int(*set_property)(struct sms1xxx_softc *sc,
+        struct dtv_properties *parg);
+    int(*get_property)(struct sms1xxx_softc *sc,
+        struct dtv_properties *parg);
     int(*get_tune_settings)(struct sms1xxx_softc *sc,
         struct dvb_frontend_tune_settings *tune);
 
@@ -161,7 +165,8 @@ struct sms1xxx_softc {
 
     /* Frontend */
     struct cdev *frontenddev;
-    struct dvb_frontend_parameters fe_params;
+    struct dvb_frontend_parameters fe_params;           /* DVBv3 FE struct */
+    struct dtv_frontend_properties dtv_property_cache;  /* DVBv5 cache */
     fe_status_t fe_status;
     int feopen;
 

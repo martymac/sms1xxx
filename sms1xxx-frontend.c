@@ -45,6 +45,7 @@
 
 /* Linux stuff */
 #include "linux/dvb/frontend.h"
+#include "linux/dvb/version.h"
 
 static d_open_t  sms1xxx_frontend_open;
 static d_close_t sms1xxx_frontend_close;
@@ -187,6 +188,14 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
                 TRACE(TRACE_IOCTL,"FE_GET_EVENT (status=%d)\n",st);
                 break;
             }
+        case FE_SET_PROPERTY:
+            err = fe->set_property(sc,(struct dtv_properties *)arg);
+            TRACE(TRACE_IOCTL,"FE_SET_PROPERTY\n");
+            break;
+        case FE_GET_PROPERTY:
+            err = fe->get_property(sc,(struct dtv_properties *)arg);
+            TRACE(TRACE_IOCTL,"FE_GET_PROPERTY\n");
+            break;
         case FIOASYNC:
             TRACE(TRACE_IOCTL,"FIOASYNC\n");
             break;
@@ -305,17 +314,30 @@ sms1xxx_frontend_read_ucblocks(struct sms1xxx_softc *sc, u32 *ucblocks)
     return (err);
 }
 
+static int
+sms1xxx_frontend_fep_to_c(const struct dvb_frontend_parameters *p,
+    struct dtv_frontend_properties *c);
+
 int
 sms1xxx_frontend_set_frontend(struct sms1xxx_softc *sc,
     struct dvb_frontend_parameters *fep)
 {
     TRACE(TRACE_IOCTL,"\n");
+
+    /* Update DVBv3 fe_params state */
     memcpy(&sc->fe_params, fep,
         sizeof(struct dvb_frontend_parameters));
-    return (sms1xxx_usb_setfrequency(
+
+    /* Update DVBv5 dtv_property_cache state */
+    /* XXX Force DVB-T */
+    sc->dtv_property_cache.delivery_system = SYS_DVBT;
+    return (sms1xxx_frontend_fep_to_c(
+        (const struct dvb_frontend_parameters *)&sc->fe_params,
+        &sc->dtv_property_cache
+    ) || sms1xxx_usb_setfrequency(
         sc,
-        fep->frequency + sc->device->freq_offset,
-        fep->u.ofdm.bandwidth
+        sc->fe_params.frequency + sc->device->freq_offset,
+        sc->fe_params.u.ofdm.bandwidth
     ));
 }
 
@@ -337,5 +359,530 @@ sms1xxx_frontend_get_tune_settings(struct sms1xxx_softc *sc,
     tune->min_delay_ms = 400;
     tune->step_size = 250000;
     tune->max_drift = 0;
+    return (0);
+}
+
+/* Below are functions that add minimal DVBv5 support */
+
+enum dvbv3_emulation_type {
+    DVBV3_UNKNOWN,
+    DVBV3_QPSK,
+    DVBV3_QAM,
+    DVBV3_OFDM,
+    DVBV3_ATSC,
+};
+
+static enum dvbv3_emulation_type
+dvbv3_type(u32 delivery_system)
+{
+    switch (delivery_system) {
+        case SYS_DVBC_ANNEX_A:
+        case SYS_DVBC_ANNEX_C:
+            return DVBV3_QAM;
+        case SYS_DVBS:
+        case SYS_DVBS2:
+        case SYS_TURBO:
+        case SYS_ISDBS:
+        case SYS_DSS:
+            return DVBV3_QPSK;
+        case SYS_DVBT:
+        case SYS_DVBT2:
+        case SYS_ISDBT:
+        case SYS_DTMB:
+            return DVBV3_OFDM;
+        case SYS_ATSC:
+        case SYS_ATSCMH:
+        case SYS_DVBC_ANNEX_B:
+            return DVBV3_ATSC;
+        case SYS_UNDEFINED:
+        case SYS_ISDBC:
+        case SYS_DVBH:
+        case SYS_DAB:
+        default:
+            /*
+             * Doesn't know how to emulate those types and/or
+             * there's no frontend driver from this type yet
+             * with some emulation code, so, we're not sure yet how
+             * to handle them, or they're not compatible with a DVBv3 call.
+             */
+            return DVBV3_UNKNOWN;
+    }
+}
+
+/* Clear DVBv5 property cache
+   Upstream name: dvb_frontend_clear_cache() */
+static int
+sms1xxx_frontend_clear_cache(struct sms1xxx_softc *sc)
+{
+    struct dtv_frontend_properties *c = &sc->dtv_property_cache;
+    int i;
+    u32 delsys;
+
+    delsys = c->delivery_system;
+    memset(c, 0, offsetof(struct dtv_frontend_properties, strength));
+    c->delivery_system = delsys;
+
+    c->state = DTV_CLEAR;
+
+    TRACE(TRACE_FRONTEND,"Clearing cache for delivery system %d\n",
+        c->delivery_system);
+
+    c->transmission_mode = TRANSMISSION_MODE_AUTO;
+    c->bandwidth_hz = 0;    /* AUTO */
+    c->guard_interval = GUARD_INTERVAL_AUTO;
+    c->hierarchy = HIERARCHY_AUTO;
+    c->symbol_rate = 0;
+    c->code_rate_HP = FEC_AUTO;
+    c->code_rate_LP = FEC_AUTO;
+    c->fec_inner = FEC_AUTO;
+    c->rolloff = ROLLOFF_AUTO;
+    c->voltage = SEC_VOLTAGE_OFF;
+    c->sectone = SEC_TONE_OFF;
+    c->pilot = PILOT_AUTO;
+
+    c->isdbt_partial_reception = 0;
+    c->isdbt_sb_mode = 0;
+    c->isdbt_sb_subchannel = 0;
+    c->isdbt_sb_segment_idx = 0;
+    c->isdbt_sb_segment_count = 0;
+    c->isdbt_layer_enabled = 0;
+    for (i = 0; i < 3; i++) {
+        c->layer[i].fec = FEC_AUTO;
+        c->layer[i].modulation = QAM_AUTO;
+        c->layer[i].interleaving = 0;
+        c->layer[i].segment_count = 0;
+    }
+
+    c->stream_id = NO_STREAM_ID_FILTER;
+
+    switch (c->delivery_system) {
+        case SYS_DVBS:
+        case SYS_DVBS2:
+        case SYS_TURBO:
+            c->modulation = QPSK;   /* implied for DVB-S in legacy API */
+            c->rolloff = ROLLOFF_35;/* implied for DVB-S */
+            break;
+        case SYS_ATSC:
+            c->modulation = VSB_8;
+            break;
+        default:
+            c->modulation = QAM_AUTO;
+            break;
+    }
+
+    c->lna = LNA_AUTO;
+
+    return (0);
+}
+
+/* DVBv3 dvb_frontend_parameters to DVBv5 dtv_frontend_properties cache sync
+   Upstream name: dtv_property_cache_sync() */
+static int
+sms1xxx_frontend_fep_to_c(const struct dvb_frontend_parameters *p,
+    struct dtv_frontend_properties *c)
+{
+    c->frequency = p->frequency;
+    c->inversion = p->inversion;
+
+    switch (dvbv3_type(c->delivery_system)) {
+        case DVBV3_QPSK:
+            c->symbol_rate = p->u.qpsk.symbol_rate;
+            c->fec_inner = p->u.qpsk.fec_inner;
+            break;
+        case DVBV3_QAM:
+            c->symbol_rate = p->u.qam.symbol_rate;
+            c->fec_inner = p->u.qam.fec_inner;
+            c->modulation = p->u.qam.modulation;
+            break;
+        case DVBV3_OFDM:
+            switch (p->u.ofdm.bandwidth) {
+                case BANDWIDTH_10_MHZ:
+                    c->bandwidth_hz = 10000000;
+                    break;
+                case BANDWIDTH_8_MHZ:
+                    c->bandwidth_hz = 8000000;
+                    break;
+                case BANDWIDTH_7_MHZ:
+                    c->bandwidth_hz = 7000000;
+                    break;
+                case BANDWIDTH_6_MHZ:
+                    c->bandwidth_hz = 6000000;
+                    break;
+                case BANDWIDTH_5_MHZ:
+                    c->bandwidth_hz = 5000000;
+                    break;
+                case BANDWIDTH_1_712_MHZ:
+                    c->bandwidth_hz = 1712000;
+                    break;
+                case BANDWIDTH_AUTO:
+                    c->bandwidth_hz = 0;
+            }
+
+            c->code_rate_HP = p->u.ofdm.code_rate_HP;
+            c->code_rate_LP = p->u.ofdm.code_rate_LP;
+            c->modulation = p->u.ofdm.constellation;
+            c->transmission_mode = p->u.ofdm.transmission_mode;
+            c->guard_interval = p->u.ofdm.guard_interval;
+            c->hierarchy = p->u.ofdm.hierarchy_information;
+            break;
+        case DVBV3_ATSC:
+            c->modulation = p->u.vsb.modulation;
+            if (c->delivery_system == SYS_ATSCMH)
+                break;
+            if ((c->modulation == VSB_8) || (c->modulation == VSB_16))
+                c->delivery_system = SYS_ATSC;
+            else
+                c->delivery_system = SYS_DVBC_ANNEX_B;
+            break;
+        case DVBV3_UNKNOWN:
+            TRACE(TRACE_FRONTEND,"Unknown delivery system\n");
+            return (EINVAL);
+    }
+
+    return (0);
+}
+
+/* DVBv5 dtv_frontend_properties cache to DVBv3 dvb_frontend_parameters sync
+   Upstream name: dtv_property_legacy_params_sync() */
+static int
+sms1xxx_frontend_c_to_fep(const struct dtv_frontend_properties *c,
+    struct dvb_frontend_parameters *p)
+{
+    p->frequency = c->frequency;
+    p->inversion = c->inversion;
+
+    switch (dvbv3_type(c->delivery_system)) {
+        case DVBV3_QPSK:
+            p->u.qpsk.symbol_rate = c->symbol_rate;
+            p->u.qpsk.fec_inner = c->fec_inner;
+            break;
+        case DVBV3_QAM:
+            p->u.qam.symbol_rate = c->symbol_rate;
+            p->u.qam.fec_inner = c->fec_inner;
+            p->u.qam.modulation = c->modulation;
+            break;
+        case DVBV3_OFDM:
+            switch (c->bandwidth_hz) {
+                case 10000000:
+                    p->u.ofdm.bandwidth = BANDWIDTH_10_MHZ;
+                    break;
+                case 8000000:
+                    p->u.ofdm.bandwidth = BANDWIDTH_8_MHZ;
+                    break;
+                case 7000000:
+                    p->u.ofdm.bandwidth = BANDWIDTH_7_MHZ;
+                    break;
+                case 6000000:
+                    p->u.ofdm.bandwidth = BANDWIDTH_6_MHZ;
+                    break;
+                case 5000000:
+                    p->u.ofdm.bandwidth = BANDWIDTH_5_MHZ;
+                    break;
+                case 1712000:
+                    p->u.ofdm.bandwidth = BANDWIDTH_1_712_MHZ;
+                    break;
+                case 0:
+                default:
+                    p->u.ofdm.bandwidth = BANDWIDTH_AUTO;
+            }
+            p->u.ofdm.code_rate_HP = c->code_rate_HP;
+            p->u.ofdm.code_rate_LP = c->code_rate_LP;
+            p->u.ofdm.constellation = c->modulation;
+            p->u.ofdm.transmission_mode = c->transmission_mode;
+            p->u.ofdm.guard_interval = c->guard_interval;
+            p->u.ofdm.hierarchy_information = c->hierarchy;
+            break;
+        case DVBV3_ATSC:
+            p->u.vsb.modulation = c->modulation;
+            break;
+        case DVBV3_UNKNOWN:
+            TRACE(TRACE_FRONTEND,"Unknown delivery system\n");
+            return (EINVAL);
+    }
+
+    return (0);
+}
+
+/* Set a single frontend property
+   Upstream name: dtv_property_process_set() */
+static int
+sms1xxx_frontend_set_single_property(struct sms1xxx_softc *sc,
+    struct dtv_property *tvp)
+{
+    int err = 0;
+    struct dtv_frontend_properties *c = &sc->dtv_property_cache;
+
+    switch(tvp->cmd) {
+        case DTV_CLEAR:
+            /*
+             * Reset a cache of data specific to the frontend here. This does
+             * not affect hardware.
+             */
+            sms1xxx_frontend_clear_cache(sc);
+            break;
+        case DTV_TUNE:
+            c->state = tvp->cmd;
+
+            /* Update DVBv3 fe_params state */
+            err = sms1xxx_frontend_c_to_fep(
+                (const struct dtv_frontend_properties *)c,
+                &sc->fe_params);
+            /* TODO: Insert here default values for tuning settings -
+               as in dtv_set_frontend() ? */
+
+            TRACE(TRACE_FRONTEND,"Finalised property cache\n");
+            /* Effective tuning is then performed through 
+               a call to sms1xxx_usb_setfrequency() within
+               sms1xxx_frontend_set_properties() */
+            break;
+        case DTV_FREQUENCY:
+            c->frequency = tvp->u.data;
+            break;
+        case DTV_MODULATION:
+            c->modulation = tvp->u.data;
+            break;
+        case DTV_BANDWIDTH_HZ:
+            c->bandwidth_hz = tvp->u.data;
+            break;
+        case DTV_INVERSION:
+            c->inversion = tvp->u.data;
+            break;
+        case DTV_SYMBOL_RATE:
+            c->symbol_rate = tvp->u.data;
+            break;
+        case DTV_INNER_FEC:
+            c->fec_inner = tvp->u.data;
+            break;
+        case DTV_PILOT:
+            c->pilot = tvp->u.data;
+            break;
+        case DTV_ROLLOFF:
+            c->rolloff = tvp->u.data;
+            break;
+        case DTV_DELIVERY_SYSTEM:
+            /* XXX Force DVB-T */
+            c->delivery_system = SYS_DVBT;
+            break;
+        case DTV_CODE_RATE_HP:
+            c->code_rate_HP = tvp->u.data;
+            break;
+        case DTV_CODE_RATE_LP:
+            c->code_rate_LP = tvp->u.data;
+            break;
+        case DTV_GUARD_INTERVAL:
+            c->guard_interval = tvp->u.data;
+            break;
+        case DTV_TRANSMISSION_MODE:
+            c->transmission_mode = tvp->u.data;
+            break;
+        case DTV_HIERARCHY:
+            c->hierarchy = tvp->u.data;
+            break;
+        case DTV_INTERLEAVING:
+            c->interleaving = tvp->u.data;
+            break;
+
+        /* Multistream support */
+        case DTV_STREAM_ID:
+        case DTV_DVBT2_PLP_ID_LEGACY:
+            c->stream_id = tvp->u.data;
+            break;
+
+        default:
+            TRACE(TRACE_FRONTEND,"Unsupported frontend property (%d)\n",
+                tvp->cmd);
+            err = EINVAL;
+    }
+
+    return (err);
+}
+
+/* Get a single frontend property
+   Upstream name: dtv_property_process_get() */
+static int
+sms1xxx_frontend_get_single_property(struct sms1xxx_softc *sc,
+    struct dtv_property *tvp)
+{
+    int err = 0;
+    struct dtv_frontend_properties *c = &sc->dtv_property_cache;
+
+    switch(tvp->cmd) {
+        case DTV_ENUM_DELSYS:
+            /* XXX Force DVB-T */
+            tvp->u.buffer.len = 1;
+            tvp->u.buffer.data[0] = SYS_DVBT;
+            break;
+        case DTV_FREQUENCY:
+            tvp->u.data = c->frequency;
+            break;
+        case DTV_MODULATION:
+            tvp->u.data = c->modulation;
+            break;
+        case DTV_BANDWIDTH_HZ:
+            tvp->u.data = c->bandwidth_hz;
+            break;
+        case DTV_INVERSION:
+            tvp->u.data = c->inversion;
+            break;
+        case DTV_SYMBOL_RATE:
+            tvp->u.data = c->symbol_rate;
+            break;
+        case DTV_INNER_FEC:
+            tvp->u.data = c->fec_inner;
+            break;
+        case DTV_PILOT:
+            tvp->u.data = c->pilot;
+            break;
+        case DTV_ROLLOFF:
+            tvp->u.data = c->rolloff;
+            break;
+        case DTV_DELIVERY_SYSTEM:
+            tvp->u.data = c->delivery_system;
+            break;
+        case DTV_API_VERSION:
+            tvp->u.data = (DVB_API_VERSION << 8) | DVB_API_VERSION_MINOR;
+            break;
+        case DTV_CODE_RATE_HP:
+            tvp->u.data = c->code_rate_HP;
+            break;
+        case DTV_CODE_RATE_LP:
+            tvp->u.data = c->code_rate_LP;
+            break;
+        case DTV_GUARD_INTERVAL:
+            tvp->u.data = c->guard_interval;
+            break;
+        case DTV_TRANSMISSION_MODE:
+            tvp->u.data = c->transmission_mode;
+            break;
+        case DTV_HIERARCHY:
+            tvp->u.data = c->hierarchy;
+            break;
+        case DTV_INTERLEAVING:
+            tvp->u.data = c->interleaving;
+            break;
+
+        /* Multistream support */
+        case DTV_STREAM_ID:
+        case DTV_DVBT2_PLP_ID_LEGACY:
+            tvp->u.data = c->stream_id;
+            break;
+
+        /* Fill quality measures */
+        /* TODO: stats unsupported yet */
+        case DTV_STAT_SIGNAL_STRENGTH:
+            tvp->u.st = c->strength;
+            break;
+        case DTV_STAT_CNR:
+            tvp->u.st = c->cnr;
+            break;
+        case DTV_STAT_PRE_ERROR_BIT_COUNT:
+            tvp->u.st = c->pre_bit_error;
+            break;
+        case DTV_STAT_PRE_TOTAL_BIT_COUNT:
+            tvp->u.st = c->pre_bit_count;
+            break;
+        case DTV_STAT_POST_ERROR_BIT_COUNT:
+            tvp->u.st = c->post_bit_error;
+            break;
+        case DTV_STAT_POST_TOTAL_BIT_COUNT:
+            tvp->u.st = c->post_bit_count;
+            break;
+        case DTV_STAT_ERROR_BLOCK_COUNT:
+            tvp->u.st = c->block_error;
+            break;
+        case DTV_STAT_TOTAL_BLOCK_COUNT:
+            tvp->u.st = c->block_count;
+            break;
+        default:
+            TRACE(TRACE_FRONTEND,"Unsupported frontend property (%d)\n", tvp->cmd);
+            err = EINVAL;
+    }
+
+    return (err);
+}
+
+/* Set an array of frontend properties
+   Upstream name: dvb_frontend_ioctl_properties()/FE_SET_PROPERTY */
+int
+sms1xxx_frontend_set_properties(struct sms1xxx_softc *sc,
+    struct dtv_properties *parg)
+{
+    TRACE(TRACE_IOCTL,"\n");
+    struct dtv_property *tvp = NULL;
+    struct dtv_frontend_properties *c = &sc->dtv_property_cache;
+    int err = 0;
+    int i;
+
+    /* Put an arbitrary limit on the number of messages that can
+     * be sent at once */
+    if ((parg->num == 0) || (parg->num > DTV_IOCTL_MAX_MSGS))
+        return (EINVAL);
+
+    tvp = malloc(parg->num * sizeof(struct dtv_property), M_USBDEV, M_WAITOK);
+    if (tvp == NULL) {
+        return (ENOMEM);
+    }
+
+    memcpy(tvp, parg->props, parg->num * sizeof(struct dtv_property));
+    for (i = 0; i < parg->num; i++) {
+        err = sms1xxx_frontend_set_single_property(sc, tvp + i);
+        (tvp + i)->result = err;
+        if (err != 0) {
+            memcpy(parg->props, tvp, parg->num * sizeof(struct dtv_property));
+            free(tvp, M_USBDEV);
+            return (err);
+        }
+    }
+    memcpy(parg->props, tvp, parg->num * sizeof(struct dtv_property));
+    free(tvp, M_USBDEV);
+
+    /* Check cache state and tune if DTV_TUNE property has been set */
+    if (c->state == DTV_TUNE) {
+        TRACE(TRACE_FRONTEND,"Property cache is full, tuning! sc=%p\n",sc);
+        return (sms1xxx_usb_setfrequency(
+            sc,
+            sc->fe_params.frequency + sc->device->freq_offset,
+            sc->fe_params.u.ofdm.bandwidth
+        ));
+        /* TODO: reset c->state ? */
+    }
+
+    return (0);
+}
+
+/* Get an array of frontend properties
+   Upstream name: dvb_frontend_ioctl_properties()/FE_GET_PROPERTY */
+int
+sms1xxx_frontend_get_properties(struct sms1xxx_softc *sc,
+    struct dtv_properties *parg)
+{
+    TRACE(TRACE_IOCTL,"\n");
+    struct dtv_property *tvp = NULL;
+    int err = 0;
+    int i;
+
+    /* Put an arbitrary limit on the number of messages that can
+     * be sent at once */
+    if ((parg->num == 0) || (parg->num > DTV_IOCTL_MAX_MSGS))
+        return (EINVAL);
+
+    tvp = malloc(parg->num * sizeof(struct dtv_property), M_USBDEV, M_WAITOK);
+    if (tvp == NULL) {
+        return (ENOMEM);
+    }
+
+    memcpy(tvp, parg->props, parg->num * sizeof(struct dtv_property));
+    for (i = 0; i < parg->num; i++) {
+        err = sms1xxx_frontend_get_single_property(sc, tvp + i);
+        (tvp + i)->result = err;
+        if (err != 0) {
+            memcpy(parg->props, tvp, parg->num * sizeof(struct dtv_property));
+            free(tvp, M_USBDEV);
+            return (err);
+        }
+    }
+    memcpy(parg->props, tvp, parg->num * sizeof(struct dtv_property));
+    free(tvp, M_USBDEV);
+
     return (0);
 }
