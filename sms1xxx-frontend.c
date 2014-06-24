@@ -128,7 +128,7 @@ sms1xxx_frontend_poll(struct cdev *dev, int events, struct thread *p)
 
 static int
 sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
-    struct thread *p)
+    struct thread *pthread)
 {
     struct sms1xxx_softc *sc = dev->si_drv1;
     struct sms1xxx_frontend *fe;
@@ -140,6 +140,14 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
         return (ENXIO);
     }
     fe = sc->device->frontend;
+
+    /* Just return 0 for those two special ioctls */
+    if((cmd == FIOASYNC) || (cmd == FIONBIO))
+        return (err);
+
+    /* Set DVBv5 cache state to DTV_UNDEFINED for legacy (DVBv3) ioctls */
+    if((cmd != FE_SET_PROPERTY) && (cmd != FE_GET_PROPERTY))
+        sc->dtv_property_cache.state = DTV_UNDEFINED;
 
     switch(cmd) {
         case FE_GET_INFO:
@@ -154,10 +162,6 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
             err = fe->read_ber(sc,(u32*)arg);
             TRACE(TRACE_IOCTL,"FE_READ_BER=%d\n",err);
             break;
-        case FE_READ_UNCORRECTED_BLOCKS:
-            err = fe->read_ucblocks(sc,(u32*)arg);
-            TRACE(TRACE_IOCTL,"FE_READ_UNCORRECTED_BLOCKS=%d\n",err);
-            break;
         case FE_READ_SIGNAL_STRENGTH:
             err = fe->read_signal_strength(sc,(u16*)arg);
             TRACE(TRACE_IOCTL,"FE_READ_SIGNAL_STRENGTH=%d\n",err);
@@ -166,13 +170,13 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
             err = fe->read_snr(sc,(u16*)arg);
             TRACE(TRACE_IOCTL,"FE_READ_SNR=%d\n",err);
             break;
+        case FE_READ_UNCORRECTED_BLOCKS:
+            err = fe->read_ucblocks(sc,(u32*)arg);
+            TRACE(TRACE_IOCTL,"FE_READ_UNCORRECTED_BLOCKS=%d\n",err);
+            break;
         case FE_SET_FRONTEND:
             err = fe->set_frontend(sc,(struct dvb_frontend_parameters *)arg);
             TRACE(TRACE_IOCTL,"FE_SET_FRONTEND=%d\n",err);
-            break;
-        case FE_GET_FRONTEND:
-            err = fe->get_frontend(sc,(struct dvb_frontend_parameters *)arg);
-            TRACE(TRACE_IOCTL,"FE_GET_FRONTEND=%d\n",err);
             break;
         case FE_GET_EVENT:
             {
@@ -188,6 +192,13 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
                 TRACE(TRACE_IOCTL,"FE_GET_EVENT (status=%d)\n",st);
                 break;
             }
+        case FE_GET_FRONTEND:
+            err = fe->get_frontend(sc,(struct dvb_frontend_parameters *)arg);
+            TRACE(TRACE_IOCTL,"FE_GET_FRONTEND=%d\n",err);
+            break;
+        case FE_SET_FRONTEND_TUNE_MODE:
+            /* XXX Unsupported, just return 0 */
+            break;
         case FE_SET_PROPERTY:
             err = fe->set_property(sc,(struct dtv_properties *)arg);
             TRACE(TRACE_IOCTL,"FE_SET_PROPERTY=%d\n",err);
@@ -196,17 +207,12 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
             err = fe->get_property(sc,(struct dtv_properties *)arg);
             TRACE(TRACE_IOCTL,"FE_GET_PROPERTY=%d\n",err);
             break;
-        case FIOASYNC:
-            TRACE(TRACE_IOCTL,"FIOASYNC\n");
-            break;
-        case FIONBIO:
-            TRACE(TRACE_IOCTL,"FIONBIO\n");
-            break;
         default:
             ERR("unknown ioctl: 0x%lx\n",cmd);
             err = ENOTTY;
             break;
     }
+
     return (err);
 }
 
@@ -628,6 +634,15 @@ sms1xxx_frontend_set_single_property(struct sms1xxx_softc *sc,
     int err = 0;
     struct dtv_frontend_properties *c = &sc->dtv_property_cache;
 
+    if(tvp->cmd == DTV_TUNE)
+        c->state = tvp->cmd;
+#if 0
+    /* TODO Reset cache state to prevent from tuning again when setting a
+       single property ? Reset to DTV_UNDEFINED, DTV_CLEAR or tvp->cmd ? */
+    else
+        c->state = DTV_UNDEFINED;
+#endif
+
     switch(tvp->cmd) {
         case DTV_CLEAR:
             /*
@@ -637,14 +652,10 @@ sms1xxx_frontend_set_single_property(struct sms1xxx_softc *sc,
             sms1xxx_frontend_clear_cache(sc);
             break;
         case DTV_TUNE:
-            c->state = tvp->cmd;
-
             /* Update DVBv3 fe_params state */
             err = sms1xxx_frontend_c_to_fep(
                 (const struct dtv_frontend_properties *)c,
                 &sc->fe_params);
-            /* TODO: Insert here default values for tuning settings -
-               as in dtv_set_frontend() ? */
 
             TRACE(TRACE_FRONTEND,"Finalised property cache\n");
             /* Effective tuning is then performed through 
@@ -786,7 +797,7 @@ sms1xxx_frontend_get_single_property(struct sms1xxx_softc *sc,
             break;
 
         /* Fill quality measures */
-        /* TODO: stats unsupported yet */
+        /* TODO stats unsupported yet */
         case DTV_STAT_SIGNAL_STRENGTH:
             tvp->u.st = c->strength;
             break;
@@ -853,7 +864,6 @@ sms1xxx_frontend_set_properties(struct sms1xxx_softc *sc,
             sc->fe_params.frequency + sc->device->freq_offset,
             sc->fe_params.u.ofdm.bandwidth
         ));
-        /* TODO: reset c->state ? */
     }
 
     return (0);
