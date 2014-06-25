@@ -934,13 +934,15 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
         //TODO
         break;
     case DMX_GET_CAPS:
-        //TODO
+        err = EINVAL;
+        ERR("DMX_GET_CAPS ioctl not implemented\n");
         break;
     case DMX_SET_SOURCE:
-        //TODO
+        err = EINVAL;
+        ERR("DMX_SET_SOURCE ioctl not implemented\n");
         break;
     case DMX_GET_STC:
-        err = ENOTTY;
+        err = EINVAL;
         ERR("DMX_GET_STC ioctl not implemented\n");
         break;
     case DMX_ADD_PID:
