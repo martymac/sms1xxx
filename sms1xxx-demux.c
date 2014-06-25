@@ -815,50 +815,38 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
         ERR("no filter found\n");
         return (EBADF);
     }
+
     if(f->state & FILTER_BUSY) {
         ERR("ioctl on filter in progress\n");
         return (EBUSY);
     }
+
+    /* Just return 0 for this special ioctl */
+    if(cmd == FIONBIO)
+        return (err);
+
     f->state |= FILTER_BUSY;
-
     switch(cmd) {
-    case DMX_SET_PES_FILTER:
-        {
-            struct dmx_pes_filter_params *p = arg;
-            TRACE(TRACE_IOCTL,"DMX_SET_PES_FILTER (pid=%d, f=%p)\n", p->pid, f);
-
+    case DMX_START:
+        if(pid_value(f->pid) > PIDMAX)
             err = EINVAL;
-            if(p->input != DMX_IN_FRONTEND) {
-                ERR("only frontend as input supported\n");
-                break;
-            }
-            if(p->output != DMX_OUT_TS_TAP) {
-                ERR("only dvr as output supported\n");
-                break;
-            }
-            if(p->pid > PIDMAX) {
-                ERR("invalid pid: %hu\n",p->pid);
-                break;
-            }
-            /* cancel previous filter, if any */
-            if(pid_value(f->pid) <= PIDMAX) {
-                sc->device->pid_filter(sc,pid_value(f->pid),0);
-                sms1xxx_demux_stop(sc,f);
-            }
-
-            f->pid = p->pid|PIDSTOPPED;
-            f->type = FILTER_TYPE_PES;
-
-            if(p->flags & DMX_IMMEDIATE_START) {
-                err = sc->device->pid_filter(sc,p->pid,1);
-                if(!err)
-                    err = sms1xxx_demux_start(sc,f);
-            }
-            break;
+        if(!err)
+            err = sc->device->pid_filter(sc,pid_value(f->pid),1);
+        if(!err)
+            err = sms1xxx_demux_start(sc,f);
+        TRACE(TRACE_IOCTL,"DMX_START=%d\n",err);
+        break;
+    case DMX_STOP:
+        if(pid_value(f->pid) <= PIDMAX) {
+            err = sc->device->pid_filter(sc,pid_value(f->pid),0);
+            if(!err)
+                err = sms1xxx_demux_stop(sc,f);
         }
+        TRACE(TRACE_IOCTL,"DMX_STOP=%d\n",err);
+        break;
     case DMX_SET_FILTER:
         {
-            /* XXX Not fully implemented: No crc checking and
+            /* XXX Not fully implemented: no crc checking and
              * only uses first byte for filtering (table id)
              */
             struct dmx_sct_filter_params *p = arg;
@@ -904,26 +892,40 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
             }
             break;
         }
-    case DMX_START:
-        if(pid_value(f->pid) > PIDMAX)
+    case DMX_SET_PES_FILTER:
+        {
+            struct dmx_pes_filter_params *p = arg;
+            TRACE(TRACE_IOCTL,"DMX_SET_PES_FILTER (pid=%d, f=%p)\n", p->pid, f);
+
             err = EINVAL;
-        if(!err)
-            err = sc->device->pid_filter(sc,pid_value(f->pid),1);
-        if(!err)
-            err = sms1xxx_demux_start(sc,f);
-        TRACE(TRACE_IOCTL,"DMX_START=%d\n",err);
-        break;
-    case DMX_STOP:
-        if(pid_value(f->pid) <= PIDMAX) {
-            err = sc->device->pid_filter(sc,pid_value(f->pid),0);
-            if(!err)
-                err = sms1xxx_demux_stop(sc,f);
+            if(p->input != DMX_IN_FRONTEND) {
+                ERR("only frontend as input supported\n");
+                break;
+            }
+            if(p->output != DMX_OUT_TS_TAP) {
+                ERR("only dvr as output supported\n");
+                break;
+            }
+            if(p->pid > PIDMAX) {
+                ERR("invalid pid: %hu\n",p->pid);
+                break;
+            }
+            /* cancel previous filter, if any */
+            if(pid_value(f->pid) <= PIDMAX) {
+                sc->device->pid_filter(sc,pid_value(f->pid),0);
+                sms1xxx_demux_stop(sc,f);
+            }
+
+            f->pid = p->pid|PIDSTOPPED;
+            f->type = FILTER_TYPE_PES;
+
+            if(p->flags & DMX_IMMEDIATE_START) {
+                err = sc->device->pid_filter(sc,p->pid,1);
+                if(!err)
+                    err = sms1xxx_demux_start(sc,f);
+            }
+            break;
         }
-        TRACE(TRACE_IOCTL,"DMX_STOP=%d\n",err);
-        break;
-    case FIONBIO:
-        TRACE(TRACE_IOCTL,"FIONBIO\n");
-        break;
     case DMX_SET_BUFFER_SIZE:
         err = ENOTTY;
         ERR("DMX_SET_BUFFER_SIZE ioctl not implemented\n");
