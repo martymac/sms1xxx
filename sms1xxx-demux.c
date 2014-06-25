@@ -645,8 +645,8 @@ sms1xxx_demux_read_section(struct sms1xxx_softc *sc, struct filter *f,
 
     rtodo -= total;
     if(rtodo == 0) {
-        TRACE(TRACE_SECT,"pid: %hu reading section done sectcnt: %d\n"
-            ,f->pid, f->sectcnt - 1);
+        TRACE(TRACE_SECT,"pid: %hu reading section done sectcnt: %d\n",
+            f->pid, f->sectcnt - 1);
     }
     mtx_lock(&sc->filterlock);
     if(f->state & FILTER_OVERFLOW) {
@@ -795,7 +795,7 @@ sms1xxx_demux_close(struct cdev *dev, int flag, int mode, struct thread *p)
 
 static int
 sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
-    struct thread *p)
+    struct thread *pthread)
 {
     int err = 0;
     struct sms1xxx_softc *sc;
@@ -850,7 +850,7 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
              * only uses first byte for filtering (table id)
              */
             struct dmx_sct_filter_params *p = arg;
-            TRACE(TRACE_IOCTL,"DMX_SET_FILTER  (pid=%d, value=%d, f=%p)\n",
+            TRACE(TRACE_IOCTL,"DMX_SET_FILTER  (pid=%hu, value=%d, f=%p)\n",
                 p->pid, p->filter.filter[0], f);
 
             err = EINVAL;
@@ -895,7 +895,7 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
     case DMX_SET_PES_FILTER:
         {
             struct dmx_pes_filter_params *p = arg;
-            TRACE(TRACE_IOCTL,"DMX_SET_PES_FILTER (pid=%d, f=%p)\n", p->pid, f);
+            TRACE(TRACE_IOCTL,"DMX_SET_PES_FILTER (pid=%hu, f=%p)\n", p->pid, f);
 
             err = EINVAL;
             if(p->input != DMX_IN_FRONTEND) {
@@ -930,9 +930,45 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
         err = ENOTTY;
         ERR("DMX_SET_BUFFER_SIZE ioctl not implemented\n");
         break;
+    case DMX_GET_PES_PIDS:
+        //TODO
+        break;
+    case DMX_GET_CAPS:
+        //TODO
+        break;
+    case DMX_SET_SOURCE:
+        //TODO
+        break;
     case DMX_GET_STC:
         err = ENOTTY;
         ERR("DMX_GET_STC ioctl not implemented\n");
+        break;
+    case DMX_ADD_PID:
+        {
+            u16 pid = *(u16 *)arg;
+            TRACE(TRACE_IOCTL,"DMX_ADD_PID (pid=%hu)\n", pid);
+
+            err = EINVAL;
+            if(pid > PIDMAX) {
+                ERR("invalid pid: %hu\n",pid);
+                break;
+            }
+            err = sc->device->pid_filter(sc,pid,1);
+            break;
+        }
+    case DMX_REMOVE_PID:
+        {
+            u16 pid = *(u16 *)arg;
+            TRACE(TRACE_IOCTL,"DMX_REMOVE_PID (pid=%hu)\n", pid);
+
+            err = EINVAL;
+            if(pid > PIDMAX) {
+                ERR("invalid pid: %hu\n",pid);
+                break;
+            }
+            err = sc->device->pid_filter(sc,pid,0);
+            break;
+        }
         break;
 #ifdef SMS1XXX_DIAGNOSTIC
     case SMS1XXX_GET_STATS:
