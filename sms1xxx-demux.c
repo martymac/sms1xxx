@@ -931,7 +931,10 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
         ERR("DMX_SET_BUFFER_SIZE ioctl not implemented\n");
         break;
     case DMX_GET_PES_PIDS:
-        //TODO
+        /* TODO Not implemented yet. May be done through a call to
+           sms1xxx_usb_getpidfilterlist() */
+        err = EINVAL;
+        ERR("DMX_GET_PES_PIDS ioctl not implemented yet\n");
         break;
     case DMX_GET_CAPS:
         err = EINVAL;
