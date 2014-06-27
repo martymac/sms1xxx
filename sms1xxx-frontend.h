@@ -45,9 +45,9 @@ int sms1xxx_frontend_set_frontend(struct sms1xxx_softc *,
 int sms1xxx_frontend_get_frontend(struct sms1xxx_softc *,
     struct dvb_frontend_parameters *);
 int sms1xxx_frontend_set_properties(struct sms1xxx_softc *sc,
-    struct dtv_properties *parg);
+    struct dtv_properties *);
 int sms1xxx_frontend_get_properties(struct sms1xxx_softc *sc,
-    struct dtv_properties *parg);
+    struct dtv_properties *);
 int sms1xxx_frontend_get_tune_settings(struct sms1xxx_softc *,
     struct dvb_frontend_tune_settings *);
 
