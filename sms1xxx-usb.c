@@ -978,7 +978,7 @@ sms1xxx_usb_setfrequency(struct sms1xxx_softc *sc, u32 frequency,
 int
 sms1xxx_usb_add_pid(struct sms1xxx_softc *sc, u16 pid)
 {
-    TRACE(TRACE_USB,"add PID %u(0x%x)\n", pid, pid);
+    INFO("add PID %u(0x%x)\n", pid, pid);
 
     struct SmsMsgData_ST PidMsg;
 
@@ -1003,7 +1003,7 @@ sms1xxx_usb_add_pid(struct sms1xxx_softc *sc, u16 pid)
 int
 sms1xxx_usb_remove_pid(struct sms1xxx_softc *sc, u16 pid)
 {
-    TRACE(TRACE_USB,"remove PID %u(0x%x)\n", pid, pid);
+    INFO("remove PID %u(0x%x)\n", pid, pid);
 
     struct SmsMsgData_ST PidMsg;
 
