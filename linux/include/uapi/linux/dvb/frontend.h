@@ -552,8 +552,9 @@ struct dtv_properties {
 	struct dtv_property *props;
 };
 
-#define FE_SET_PROPERTY		   _IOW('o', 82, struct dtv_properties)
-#define FE_GET_PROPERTY		   _IOR('o', 83, struct dtv_properties)
+/* XXX Sms1xxx locally modified: both ioctls are bi-directional */
+#define FE_SET_PROPERTY		   _IOWR('o', 82, struct dtv_properties)
+#define FE_GET_PROPERTY		   _IOWR('o', 83, struct dtv_properties)
 
 
 /**
