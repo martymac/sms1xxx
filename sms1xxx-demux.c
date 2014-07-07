@@ -490,6 +490,44 @@ sms1xxx_demux_write_section(struct sms1xxx_softc *sc, u8 *p,
     return (0);
 }
 
+static int
+sms1xxx_demux_write_packet(struct sms1xxx_softc *sc, u8 *p,
+    struct filter *f)
+{
+    if(f->wavail < PACKET_SIZE) {
+#ifdef SMS1XXX_DIAGNOSTIC
+        WARN("pid: %hu no buffer space available\n",f->pid);
+#endif
+        sms1xxx_demux_sectbuf_reset(sc, f, 1, "no buffer space");
+        return (0);
+    }
+
+    TRACE(TRACE_FILTERS,"pid: %hu writing %d bytes to buffer\n",
+        f->pid,PACKET_SIZE);
+    memcpy(f->buf + f->woff,p,PACKET_SIZE);
+    f->woff += PACKET_SIZE;
+    if(f->woff == f->size)
+        f->woff = 0;
+
+    mtx_lock(&sc->filterlock);
+    f->wavail -= PACKET_SIZE;
+    f->ravail += PACKET_SIZE;
+    /* TODO f->sectcnt++ ? */
+    f->state &= ~FILTER_OVERFLOW;
+    mtx_unlock(&sc->filterlock);
+    TRACE(TRACE_FILTERS,"pid: %hu writing packet done\n" ,f->pid);
+
+    /* Wake up readers ! */
+    if(f->state & FILTER_SLEEP)
+        wakeup(f);
+    if(f->state & FILTER_POLL) {
+        f->state &= ~FILTER_POLL;
+        selwakeuppri(&f->rsel, PZERO);
+    }
+
+    return (0);
+}
+
 static void
 sms1xxx_demux_clone(void *arg, struct ucred *cred, char *name,
     int namelen, struct cdev **dev)
@@ -733,7 +771,7 @@ sms1xxx_demux_poll(struct cdev *dev, int events, struct thread *p)
 
     /* XXX POLLERR POLLPRI */
     if(events & (POLLIN | POLLRDNORM)) {
-        if(f->sectcnt == 0) { 
+        if(f->sectcnt == 0) {
             selrecord(p,&f->rsel);
             f->state |= FILTER_POLL;
             TRACE(TRACE_POLL,"will block\n");
@@ -881,7 +919,8 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
             }
 
             sms1xxx_demux_sectbuf_reset(sc, f, 0, "init");
-            f->type = FILTER_TYPE_SECT;
+            f->type = FILTER_TYPE_SEC;
+            /* XXX f->output = <undefined because irrelevant here> */
             f->mask = p->filter.mask[0];
             f->value = p->filter.filter[0];
 
@@ -902,8 +941,9 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
                 ERR("only frontend as input supported\n");
                 break;
             }
-            if(p->output != DMX_OUT_TS_TAP) {
-                ERR("only dvr as output supported\n");
+            if((p->output != DMX_OUT_TS_TAP) &&
+                (p->output != DMX_OUT_TSDEMUX_TAP)) {
+                ERR("only DMX_OUT_TS_TAP and DMX_OUT_TSDEMUX_TAP supported\n");
                 break;
             }
             if(p->pid > PIDMAX) {
@@ -917,7 +957,20 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
             }
 
             f->pid = p->pid|PIDSTOPPED;
+            if(p->output == DMX_OUT_TSDEMUX_TAP) {
+                if(f->buf == NULL) {
+                    f->buf = malloc(SECTBUFSIZE,M_USBDEV,M_WAITOK);
+                    if(f->buf == NULL) {
+                        ERR("failed to allocate filter buf\n");
+                        err = ENOMEM;
+                        f->pid = PIDEMPTY;
+                        break;
+                    }
+                }
+                sms1xxx_demux_sectbuf_reset(sc, f, 0, "init");
+            }
             f->type = FILTER_TYPE_PES;
+            f->output = p->output;
 
             if(p->flags & DMX_IMMEDIATE_START) {
                 err = sc->device->pid_filter(sc,p->pid,1);
@@ -1112,72 +1165,80 @@ sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
 #endif
 
     for(i = 0; i < MAX_FILTERS && !done ; ++i) {
-         struct filter *f = &sc->filter[i];
-         if(pid != f->pid && f->pid != PIDALL) {
-             continue;
-         }
-         /* dvr0 device */
-         if(f->type == FILTER_TYPE_PES && !dvrdone) {
-             if(sc->dvr.wavail >= PACKET_SIZE) {
-                 memcpy(sc->dvr.buf+sc->dvr.woff,p,PACKET_SIZE);
-                 sc->dvr.woff += PACKET_SIZE;
-                 if(sc->dvr.woff == sc->dvr.size)
-                     sc->dvr.woff = 0;
-
-                 mtx_lock(&sc->dvr.lock);
-                 sc->dvr.wavail -= PACKET_SIZE;
-                 sc->dvr.ravail += PACKET_SIZE;
-#ifdef SMS1XXX_DIAGNOSTIC
-                 if(sc->dvr.wavail < sc->stats.min_wavail)
-                     sc->stats.min_wavail = sc->dvr.wavail;
-                 if(sc->dvr.ravail > sc->stats.max_ravail)
-                     sc->stats.max_ravail = sc->dvr.ravail;
-#endif
-                 mtx_unlock(&sc->dvr.lock);
-                 if(sc->dvr.nobufs != 0) {
-                     WARN("%u packets dropped due to no "
-                         "buffer space\n", sc->dvr.nobufs);
-                     sc->dvr.nobufs = 0;
-                 }
-             }
-             else {
-                 sc->dvr.nobufs++;
-             }
-             if(sc->dvr.ravail >= sc->dvr.threshold) {
-                 /* Wake up readers ! */
-                 if(sc->dvr.state & DVR_SLEEP)
-                     wakeup(&sc->dvr);
-                 if(sc->dvr.state & DVR_POLL) {
-                     sc->dvr.state &= ~DVR_POLL;
-                     selwakeuppri(&sc->dvr.rsel, PZERO);
-                 }
-             }
-             dvrdone = 1;
-         }
-         /* demux0.n devices */
-         else if(f->type == FILTER_TYPE_SECT) {
+        struct filter *f = &sc->filter[i];
+        if(pid != f->pid && f->pid != PIDALL) {
+            continue;
+        }
+        /* Output multiplexed into a new TS :
+           - to dvr0 if f->output == DMX_OUT_TS_TAP
+           - to demux0.n if f->output == DMX_OUT_TSDEMUX_TAP */
+        if(f->type == FILTER_TYPE_PES) {
+            if(f->output == DMX_OUT_TS_TAP) {
+                if(!dvrdone) {
+                    if(sc->dvr.wavail >= PACKET_SIZE) {
+                        memcpy(sc->dvr.buf+sc->dvr.woff,p,PACKET_SIZE);
+                        sc->dvr.woff += PACKET_SIZE;
+                        if(sc->dvr.woff == sc->dvr.size)
+                            sc->dvr.woff = 0;
+    
+                        mtx_lock(&sc->dvr.lock);
+                        sc->dvr.wavail -= PACKET_SIZE;
+                        sc->dvr.ravail += PACKET_SIZE;
+    #ifdef SMS1XXX_DIAGNOSTIC
+                        if(sc->dvr.wavail < sc->stats.min_wavail)
+                            sc->stats.min_wavail = sc->dvr.wavail;
+                        if(sc->dvr.ravail > sc->stats.max_ravail)
+                            sc->stats.max_ravail = sc->dvr.ravail;
+    #endif
+                        mtx_unlock(&sc->dvr.lock);
+                        if(sc->dvr.nobufs != 0) {
+                            WARN("%u packets dropped due to no "
+                                "buffer space\n", sc->dvr.nobufs);
+                            sc->dvr.nobufs = 0;
+                        }
+                    }
+                    else {
+                        sc->dvr.nobufs++;
+                    }
+                    if(sc->dvr.ravail >= sc->dvr.threshold) {
+                        /* Wake up readers ! */
+                        if(sc->dvr.state & DVR_SLEEP)
+                            wakeup(&sc->dvr);
+                        if(sc->dvr.state & DVR_POLL) {
+                            sc->dvr.state &= ~DVR_POLL;
+                            selwakeuppri(&sc->dvr.rsel, PZERO);
+                        }
+                    }
+                    dvrdone = 1;
+                }
+            }
+            else /* f->output == DMX_OUT_TSDEMUX_TAP */
+                done = sms1xxx_demux_write_packet(sc, p, f);
+        }
+        /* Section output to demux0.n devices */
+        else if(f->type == FILTER_TYPE_SEC) {
 #ifndef SMS1XXX_DIAGNOSTIC
-             u8 cc = TS_GET_CC(p);
+            u8 cc = TS_GET_CC(p);
 #endif
-             if(cc == f->cc)
-                 done = sms1xxx_demux_write_section(sc, p, f);
-             else {
-                 sms1xxx_demux_sectbuf_reset(sc, f, 1,
-                    "discontinuity");
-                 done = 1;
-             }
+            if(cc == f->cc)
+                done = sms1xxx_demux_write_section(sc, p, f);
+            else {
+                sms1xxx_demux_sectbuf_reset(sc, f, 1,
+                   "discontinuity");
+                done = 1;
+            }
 #ifndef SMS1XXX_DIAGNOSTIC
-             f->cc = (cc + 1) & 0xF;
+            f->cc = (cc + 1) & 0xF;
 #endif
-         }
+        }
 #ifdef SMS1XXX_DIAGNOSTIC
-         if(cc != sc->filter[i].cc &&
-         cc != sc->filter[i].cc - 1) {
-             WARN("discontinuity for pid: %d expected: %x "
-                "got: %x\n", pid,sc->filter[i].cc,cc);
-         }
-         sc->stats.packetsmatched++;
-         sc->filter[i].cc = (cc + 1) & 0xF;
+        if(cc != sc->filter[i].cc &&
+        cc != sc->filter[i].cc - 1) {
+            WARN("discontinuity for pid: %d expected: %x "
+               "got: %x\n", pid,sc->filter[i].cc,cc);
+        }
+        sc->stats.packetsmatched++;
+        sc->filter[i].cc = (cc + 1) & 0xF;
 #endif
     }
     return;
