@@ -491,6 +491,48 @@ sms1xxx_demux_write_section(struct sms1xxx_softc *sc, u8 *p,
 }
 
 static int
+sms1xxx_dvr_write_packet(struct sms1xxx_softc *sc, u8 *p)
+{
+    if(sc->dvr.wavail < PACKET_SIZE) {
+        sc->dvr.nobufs++;
+    }
+    else {
+        memcpy(sc->dvr.buf+sc->dvr.woff,p,PACKET_SIZE);
+        sc->dvr.woff += PACKET_SIZE;
+        if(sc->dvr.woff == sc->dvr.size)
+            sc->dvr.woff = 0;
+
+        mtx_lock(&sc->dvr.lock);
+        sc->dvr.wavail -= PACKET_SIZE;
+        sc->dvr.ravail += PACKET_SIZE;
+#ifdef SMS1XXX_DIAGNOSTIC
+        if(sc->dvr.wavail < sc->stats.min_wavail)
+            sc->stats.min_wavail = sc->dvr.wavail;
+        if(sc->dvr.ravail > sc->stats.max_ravail)
+            sc->stats.max_ravail = sc->dvr.ravail;
+#endif
+        mtx_unlock(&sc->dvr.lock);
+        if(sc->dvr.nobufs != 0) {
+            WARN("%u packets dropped due to no "
+                "buffer space\n", sc->dvr.nobufs);
+            sc->dvr.nobufs = 0;
+        }
+    }
+
+    /* Wake up readers ! */
+    if(sc->dvr.ravail >= sc->dvr.threshold) {
+        if(sc->dvr.state & DVR_SLEEP)
+            wakeup(&sc->dvr);
+        if(sc->dvr.state & DVR_POLL) {
+            sc->dvr.state &= ~DVR_POLL;
+            selwakeuppri(&sc->dvr.rsel, PZERO);
+        }
+    }
+
+    return (1);
+}
+
+static int
 sms1xxx_demux_write_packet(struct sms1xxx_softc *sc, u8 *p,
     struct filter *f)
 {
@@ -1174,43 +1216,8 @@ sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
            - to demux0.n if f->output == DMX_OUT_TSDEMUX_TAP */
         if(f->type == FILTER_TYPE_PES) {
             if(f->output == DMX_OUT_TS_TAP) {
-                if(!dvrdone) {
-                    if(sc->dvr.wavail >= PACKET_SIZE) {
-                        memcpy(sc->dvr.buf+sc->dvr.woff,p,PACKET_SIZE);
-                        sc->dvr.woff += PACKET_SIZE;
-                        if(sc->dvr.woff == sc->dvr.size)
-                            sc->dvr.woff = 0;
-    
-                        mtx_lock(&sc->dvr.lock);
-                        sc->dvr.wavail -= PACKET_SIZE;
-                        sc->dvr.ravail += PACKET_SIZE;
-    #ifdef SMS1XXX_DIAGNOSTIC
-                        if(sc->dvr.wavail < sc->stats.min_wavail)
-                            sc->stats.min_wavail = sc->dvr.wavail;
-                        if(sc->dvr.ravail > sc->stats.max_ravail)
-                            sc->stats.max_ravail = sc->dvr.ravail;
-    #endif
-                        mtx_unlock(&sc->dvr.lock);
-                        if(sc->dvr.nobufs != 0) {
-                            WARN("%u packets dropped due to no "
-                                "buffer space\n", sc->dvr.nobufs);
-                            sc->dvr.nobufs = 0;
-                        }
-                    }
-                    else {
-                        sc->dvr.nobufs++;
-                    }
-                    if(sc->dvr.ravail >= sc->dvr.threshold) {
-                        /* Wake up readers ! */
-                        if(sc->dvr.state & DVR_SLEEP)
-                            wakeup(&sc->dvr);
-                        if(sc->dvr.state & DVR_POLL) {
-                            sc->dvr.state &= ~DVR_POLL;
-                            selwakeuppri(&sc->dvr.rsel, PZERO);
-                        }
-                    }
-                    dvrdone = 1;
-                }
+                if(!dvrdone)
+                    dvrdone = sms1xxx_dvr_write_packet(sc, p);
             }
             else /* f->output == DMX_OUT_TSDEMUX_TAP */
                 done = sms1xxx_demux_write_packet(sc, p, f);
