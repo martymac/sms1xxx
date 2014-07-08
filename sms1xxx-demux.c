@@ -119,7 +119,7 @@ sms1xxx_dvr_close(struct cdev *dev, int flag, int mode, struct thread *p)
 }
 
 static inline int
-sms1xxx_dvr_get_data(struct sms1xxx_softc *sc, struct uio *uio)
+sms1xxx_dvr_read_packets(struct sms1xxx_softc *sc, struct uio *uio)
 {
     int err = 0;
     u32 todo, total;
@@ -189,7 +189,7 @@ sms1xxx_dvr_read(struct cdev *dev, struct uio *uio, int flag)
         return (EBUSY);
     }
 
-    while((err = sms1xxx_dvr_get_data(sc,uio)) > 0) {
+    while((err = sms1xxx_dvr_read_packets(sc,uio)) > 0) {
         if(flag & O_NONBLOCK)
             return (EWOULDBLOCK);
 
