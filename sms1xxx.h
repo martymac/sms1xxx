@@ -206,13 +206,14 @@ struct sms1xxx_softc {
         u16 rtodo;
 #define SECTBUFSIZE         8192
         u16 size;
-        u16 sectcnt;
+        u16 cnt;               /* data object counter (sections or PES packets)
+                                  depending on output filter type */
 #define FILTER_TYPE_NONE    0
 #define FILTER_TYPE_SEC     1
 #define FILTER_TYPE_PES     2
         u8 type;
-        dmx_output_t output; /* DMX_OUT_TS_TAP or
-                                DMX_OUT_TSDEMUX_TAP */
+        dmx_output_t output;    /* DMX_OUT_TS_TAP or
+                                   DMX_OUT_TSDEMUX_TAP */
         u8 mask;
         u8 value;
         u8 cc;

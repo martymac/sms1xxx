@@ -118,7 +118,7 @@ sms1xxx_dvr_close(struct cdev *dev, int flag, int mode, struct thread *p)
     return (0);
 }
 
-static inline int
+static int
 sms1xxx_dvr_read_packets(struct sms1xxx_softc *sc, struct uio *uio)
 {
     int err = 0;
@@ -169,7 +169,7 @@ sms1xxx_dvr_read_packets(struct sms1xxx_softc *sc, struct uio *uio)
            sc->stats.min_ravail = sc->dvr.ravail;
 #endif
     mtx_unlock(&sc->dvr.lock);
-    return (uio->uio_resid);
+    return (0);
 }
 
 static int
@@ -369,7 +369,7 @@ sms1xxx_demux_sectbuf_reset(struct sms1xxx_softc *sc, struct filter *f,
     f->wtodo = 0;
     f->rtodo = 0;
     f->size = SECTBUFSIZE;
-    f->sectcnt = 0;
+    f->cnt = 0;
     mtx_unlock(&sc->filterlock);
 
     if(wake) {
@@ -463,11 +463,11 @@ sms1xxx_demux_write_section(struct sms1xxx_softc *sc, u8 *p,
         mtx_lock(&sc->filterlock);
         f->wavail -= total;
         f->ravail += total;
-        f->sectcnt++;
+        f->cnt++;
         f->state &= ~FILTER_OVERFLOW;
         mtx_unlock(&sc->filterlock);
-        TRACE(TRACE_SECT,"pid: %hu writing section done sectcnt: %d\n"
-            ,f->pid, f->sectcnt);
+        TRACE(TRACE_SECT,"pid: %hu writing section done cnt: %d\n"
+            ,f->pid, f->cnt);
 
         /* Wake up readers ! */
         if(f->state & FILTER_SLEEP)
@@ -554,7 +554,7 @@ sms1xxx_demux_write_packet(struct sms1xxx_softc *sc, u8 *p,
     mtx_lock(&sc->filterlock);
     f->wavail -= PACKET_SIZE;
     f->ravail += PACKET_SIZE;
-    /* TODO f->sectcnt++ ? */
+    f->cnt++;
     f->state &= ~FILTER_OVERFLOW;
     mtx_unlock(&sc->filterlock);
     TRACE(TRACE_FILTERS,"pid: %hu writing packet done\n" ,f->pid);
@@ -660,16 +660,16 @@ sms1xxx_demux_open(struct cdev *dev, int flag, int mode, struct thread *p)
     return (err);
 }
 
-static inline int
+static int
 sms1xxx_demux_read_section(struct sms1xxx_softc *sc, struct filter *f,
     struct uio *uio)
 {
     int err = 0;
     u32 roff, rtodo, count, total;
-    TRACE(TRACE_SECT,"pid: %hu sectcnt: %d overflow: %s\n", f->pid,
-        f->sectcnt, f->state & FILTER_OVERFLOW ? "yes" : "no" );
+    TRACE(TRACE_SECT,"pid: %hu cnt: %d overflow: %s\n", f->pid,
+        f->cnt, f->state & FILTER_OVERFLOW ? "yes" : "no" );
 
-    if(f->sectcnt == 0)
+    if(f->cnt == 0)
         return (EBUSY);
     else if(f->state & FILTER_OVERFLOW) {
         f->state &= ~FILTER_OVERFLOW;
@@ -725,8 +725,8 @@ sms1xxx_demux_read_section(struct sms1xxx_softc *sc, struct filter *f,
 
     rtodo -= total;
     if(rtodo == 0) {
-        TRACE(TRACE_SECT,"pid: %hu reading section done sectcnt: %d\n",
-            f->pid, f->sectcnt - 1);
+        TRACE(TRACE_SECT,"pid: %hu reading section done cnt: %d\n",
+            f->pid, f->cnt - 1);
     }
     mtx_lock(&sc->filterlock);
     if(f->state & FILTER_OVERFLOW) {
@@ -737,11 +737,67 @@ sms1xxx_demux_read_section(struct sms1xxx_softc *sc, struct filter *f,
         else
             return (-EOVERFLOW);
     }
-    f->sectcnt--;
+    f->cnt--;
     f->rtodo = rtodo;
     f->roff = roff;
     f->ravail -= total;
     f->wavail += total;
+    mtx_unlock(&sc->filterlock);
+    return (0);
+}
+
+static int
+sms1xxx_demux_read_packets(struct sms1xxx_softc *sc, struct filter *f,
+    struct uio *uio)
+{
+    int err = 0;
+    u32 todo, total;
+    TRACE(TRACE_SECT,"pid: %hu cnt: %d overflow: %s\n", f->pid,
+        f->cnt, f->state & FILTER_OVERFLOW ? "yes" : "no" );
+
+    if(f->cnt == 0)
+        return (EBUSY);
+    else if(f->state & FILTER_OVERFLOW) {
+        f->state &= ~FILTER_OVERFLOW;
+        return (-EOVERFLOW);
+    }
+
+    mtx_lock(&sc->filterlock);
+    total = MIN(uio->uio_resid, f->ravail);
+    todo = MIN(total, f->size - f->roff);
+    mtx_unlock(&sc->filterlock);
+
+    if(total > f->size) {
+        ERR("total > fsize, this shouldn't happen! %d > %d\n",
+            total, f->size);
+        return (-EOVERFLOW);
+    }
+
+    TRACE(TRACE_SECT,"pid: %hu reading %d bytes from section\n",
+        f->pid, total);
+
+    err = uiomove(f->buf + f->roff, todo, uio);
+    if(err)
+        return (-err);
+
+    if(todo < total) {
+        f->roff = total - todo;
+        err = uiomove(f->buf,f->roff, uio);
+        if(err)
+            return (-err);
+    }
+    else {
+        f->roff += total;
+    }
+    if(f->roff == f->size)
+        f->roff = 0;
+
+    mtx_lock(&sc->filterlock);
+    f->ravail -= total;
+    f->wavail += total;
+    /* XXX Update cnt given the remaining bytes available and PACKET_SIZE
+       instead of counting how many packets have actually been read */
+    f->cnt = f->ravail / PACKET_SIZE;
     mtx_unlock(&sc->filterlock);
     return (0);
 }
@@ -752,6 +808,8 @@ sms1xxx_demux_read(struct cdev *dev, struct uio *uio, int flag)
     int err = 0;
     struct sms1xxx_softc *sc;
     struct filter *f;
+    static int(*sms1xxx_demux_read_function)(struct sms1xxx_softc *,
+        struct filter *,struct uio *);
 
     TRACE(TRACE_READ,"flag=%d, f=%p\n", flag, dev->si_drv2);
 
@@ -771,7 +829,14 @@ sms1xxx_demux_read(struct cdev *dev, struct uio *uio, int flag)
         return (EBUSY);
     }
 
-    while((err = sms1xxx_demux_read_section(sc,f,uio)) > 0) {
+    /* Initialize read redirector */
+    if (f->type == FILTER_TYPE_SEC)
+        sms1xxx_demux_read_function = &sms1xxx_demux_read_section;
+    else /* f->type == FILTER_TYPE_PES */
+        sms1xxx_demux_read_function = &sms1xxx_demux_read_packets;
+
+    /* Call appropriate read function */
+    while((err = (*sms1xxx_demux_read_function)(sc,f,uio)) > 0) {
         if(flag & O_NONBLOCK)
             return (EWOULDBLOCK);
 
@@ -813,7 +878,7 @@ sms1xxx_demux_poll(struct cdev *dev, int events, struct thread *p)
 
     /* XXX POLLERR POLLPRI */
     if(events & (POLLIN | POLLRDNORM)) {
-        if(f->sectcnt == 0) {
+        if(f->cnt == 0) {
             selrecord(p,&f->rsel);
             f->state |= FILTER_POLL;
             TRACE(TRACE_POLL,"will block\n");
