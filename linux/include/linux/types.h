@@ -1,7 +1,7 @@
 /*
  * types.h
  *
- * Copyright (C) 2009 - Ganaël Laplanche, http://contribs.martymac.org
+ * Copyright (C) 2009-2014 - Ganaël Laplanche, http://contribs.martymac.org
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Lesser Public License

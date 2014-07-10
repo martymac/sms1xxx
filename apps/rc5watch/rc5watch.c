@@ -1,6 +1,6 @@
 /*  rc5watch : tool to watch and decode rc5 SMS1XXX IR events
  *
- *  Copyright (C) 2008-2009 - Ganaël Laplanche, http://contribs.martymac.org
+ *  Copyright (C) 2008-2014 - Ganaël Laplanche, http://contribs.martymac.org
  *
  *  This tool contains code taken from the Linux siano driver:
  *
