@@ -119,16 +119,54 @@ sms1xxx_dvr_close(struct cdev *dev, int flag, int mode, struct thread *p)
 }
 
 static int
+sms1xxx_dvr_write_packet(struct sms1xxx_softc *sc, u8 *p)
+{
+    if(sc->dvr.wavail < PACKET_SIZE) {
+        sc->dvr.nobufs++;
+    }
+    else {
+        memcpy(sc->dvr.buf+sc->dvr.woff,p,PACKET_SIZE);
+        sc->dvr.woff += PACKET_SIZE;
+        if(sc->dvr.woff == sc->dvr.size)
+            sc->dvr.woff = 0;
+
+        mtx_lock(&sc->dvr.lock);
+        sc->dvr.wavail -= PACKET_SIZE;
+        sc->dvr.ravail += PACKET_SIZE;
+#ifdef SMS1XXX_DIAGNOSTIC
+        if(sc->dvr.wavail < sc->stats.min_wavail)
+            sc->stats.min_wavail = sc->dvr.wavail;
+        if(sc->dvr.ravail > sc->stats.max_ravail)
+            sc->stats.max_ravail = sc->dvr.ravail;
+#endif
+        mtx_unlock(&sc->dvr.lock);
+        if(sc->dvr.nobufs != 0) {
+            WARN("%u packets dropped due to no "
+                "buffer space\n", sc->dvr.nobufs);
+            sc->dvr.nobufs = 0;
+        }
+    }
+
+    /* Wake up readers ! */
+    if(sc->dvr.ravail >= THRESHOLD) {
+        if(sc->dvr.state & DVR_SLEEP)
+            wakeup(&sc->dvr);
+        if(sc->dvr.state & DVR_POLL) {
+            sc->dvr.state &= ~DVR_POLL;
+            selwakeuppri(&sc->dvr.rsel, PZERO);
+        }
+    }
+
+    return (1);
+}
+
+static int
 sms1xxx_dvr_read_packets(struct sms1xxx_softc *sc, struct uio *uio)
 {
     int err = 0;
     u32 todo, total;
-#if 0
-    sc->dvr.threshold = MIN(uio->uio_resid, DVRBUFSIZE/3);
-    if(sc->dvr.threshold < PACKET_SIZE)
-        sc->dvr.threshold = PACKET_SIZE;
-#endif
-    if(sc->dvr.ravail < sc->dvr.threshold)
+
+    if(sc->dvr.ravail < THRESHOLD)
         return (EBUSY);
 
     TRACE(TRACE_DVR_READ,"wants: %zu bytes, got: %u bytes\n",
@@ -222,7 +260,7 @@ sms1xxx_dvr_poll(struct cdev *dev, int events, struct thread *p)
 
     /* XXX POLLERR POLLPRI */
     if(events & (POLLIN | POLLRDNORM)) {
-        if(sc->dvr.ravail < sc->dvr.threshold) { 
+        if(sc->dvr.ravail < THRESHOLD) { 
             selrecord(p,&sc->dvr.rsel);
             sc->dvr.state |= DVR_POLL;
             TRACE(TRACE_DVR_READ,"will block\n");
@@ -259,18 +297,6 @@ static struct cdevsw sms1xxx_demux_cdevsw = {
     .d_poll     = sms1xxx_demux_poll,
     .d_name     = "sms1xxx_demux",
 };
-
-static int
-sms1xxx_demux_write_section(struct sms1xxx_softc *sc, u8 *p,
-    struct filter *f);
-
-static void
-sms1xxx_demux_sectbuf_reset(struct sms1xxx_softc *sc,
-    struct filter *f, int wake, char *msg);
-
-static void
-sms1xxx_demux_clone(void *arg, struct ucred *cred, char *name,
-    int namelen, struct cdev **dev);
 
 /*****************************
  * Demuxer private functions *
@@ -491,48 +517,6 @@ sms1xxx_demux_write_section(struct sms1xxx_softc *sc, u8 *p,
 }
 
 static int
-sms1xxx_dvr_write_packet(struct sms1xxx_softc *sc, u8 *p)
-{
-    if(sc->dvr.wavail < PACKET_SIZE) {
-        sc->dvr.nobufs++;
-    }
-    else {
-        memcpy(sc->dvr.buf+sc->dvr.woff,p,PACKET_SIZE);
-        sc->dvr.woff += PACKET_SIZE;
-        if(sc->dvr.woff == sc->dvr.size)
-            sc->dvr.woff = 0;
-
-        mtx_lock(&sc->dvr.lock);
-        sc->dvr.wavail -= PACKET_SIZE;
-        sc->dvr.ravail += PACKET_SIZE;
-#ifdef SMS1XXX_DIAGNOSTIC
-        if(sc->dvr.wavail < sc->stats.min_wavail)
-            sc->stats.min_wavail = sc->dvr.wavail;
-        if(sc->dvr.ravail > sc->stats.max_ravail)
-            sc->stats.max_ravail = sc->dvr.ravail;
-#endif
-        mtx_unlock(&sc->dvr.lock);
-        if(sc->dvr.nobufs != 0) {
-            WARN("%u packets dropped due to no "
-                "buffer space\n", sc->dvr.nobufs);
-            sc->dvr.nobufs = 0;
-        }
-    }
-
-    /* Wake up readers ! */
-    if(sc->dvr.ravail >= sc->dvr.threshold) {
-        if(sc->dvr.state & DVR_SLEEP)
-            wakeup(&sc->dvr);
-        if(sc->dvr.state & DVR_POLL) {
-            sc->dvr.state &= ~DVR_POLL;
-            selwakeuppri(&sc->dvr.rsel, PZERO);
-        }
-    }
-
-    return (1);
-}
-
-static int
 sms1xxx_demux_write_packet(struct sms1xxx_softc *sc, u8 *p,
     struct filter *f)
 {
@@ -554,7 +538,9 @@ sms1xxx_demux_write_packet(struct sms1xxx_softc *sc, u8 *p,
     mtx_lock(&sc->filterlock);
     f->wavail -= PACKET_SIZE;
     f->ravail += PACKET_SIZE;
-    f->cnt++;
+    /* XXX Update cnt given the remaining bytes available and PACKET_SIZE
+       instead of counting how many packets have actually been written */
+    f->cnt = f->ravail / PACKET_SIZE;
     f->state &= ~FILTER_OVERFLOW;
     mtx_unlock(&sc->filterlock);
     TRACE(TRACE_FILTERS,"pid: %hu writing packet done\n" ,f->pid);
@@ -752,10 +738,11 @@ sms1xxx_demux_read_packets(struct sms1xxx_softc *sc, struct filter *f,
 {
     int err = 0;
     u32 todo, total;
-    TRACE(TRACE_SECT,"pid: %hu cnt: %d overflow: %s\n", f->pid,
+
+    TRACE(TRACE_FILTERS,"pid: %hu cnt: %d overflow: %s\n", f->pid,
         f->cnt, f->state & FILTER_OVERFLOW ? "yes" : "no" );
 
-    if(f->cnt == 0)
+    if(f->ravail < THRESHOLD)
         return (EBUSY);
     else if(f->state & FILTER_OVERFLOW) {
         f->state &= ~FILTER_OVERFLOW;
@@ -773,7 +760,7 @@ sms1xxx_demux_read_packets(struct sms1xxx_softc *sc, struct filter *f,
         return (-EOVERFLOW);
     }
 
-    TRACE(TRACE_SECT,"pid: %hu reading %d bytes from section\n",
+    TRACE(TRACE_FILTERS,"pid: %hu reading %d bytes from buffer\n",
         f->pid, total);
 
     err = uiomove(f->buf + f->roff, todo, uio);
@@ -799,6 +786,7 @@ sms1xxx_demux_read_packets(struct sms1xxx_softc *sc, struct filter *f,
        instead of counting how many packets have actually been read */
     f->cnt = f->ravail / PACKET_SIZE;
     mtx_unlock(&sc->filterlock);
+
     return (0);
 }
 
@@ -1140,7 +1128,7 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
         {
             struct sms1xxx_stats *stats = arg;
             memcpy(stats,&sc->stats,sizeof(struct sms1xxx_stats));
-            stats->threshold = sc->dvr.threshold;
+            stats->threshold = THRESHOLD;
             sc->stats.interrupts = 0;
             sc->stats.bytes = 0;
             sc->stats.packetsmatched = 0;
@@ -1173,7 +1161,6 @@ sms1xxx_demux_init(struct sms1xxx_softc *sc)
     mtx_init(&sc->filterlock, "DVB Filter lock", NULL, MTX_DEF);
 
     /* DVR */
-    sc->dvr.threshold = THRESHOLD;
     sc->dvr.size = DVRBUFSIZE;
     sc->dvr.buf = malloc(sc->dvr.size, M_USBDEV, M_WAITOK);
     if(sc->dvr.buf == NULL) {

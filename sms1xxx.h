@@ -236,7 +236,6 @@ struct sms1xxx_softc {
         u32 woff;
         u32 ravail;
         u32 wavail;
-        u32 threshold;
         u32 size;
         u32 nobufs;
 #define DVR_OPEN    0x0001
