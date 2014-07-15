@@ -20,7 +20,6 @@
  *
  */
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -29,13 +28,11 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <errno.h>
+#include <libutil.h>
 
 #include <linux/dvb/dmx.h>
 
-#include "hex_dump.h"
-
 #define MAX_PES_SIZE (4*1024)
-
 
 void usage(void)
 {
@@ -65,7 +62,7 @@ void process_pes(int fd, FILE *out)
 		}
 	}
 	if (out == stdout) {
-		hex_dump(buf, bytes);
+		hexdump(buf, bytes, NULL, 0);
 		printf("\n");
 	}
 	else {

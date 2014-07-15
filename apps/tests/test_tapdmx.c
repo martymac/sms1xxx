@@ -24,9 +24,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
-//hm, I haven't tested writing large files yet... maybe it works
-#define _LARGEFILE64_SOURCE
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -104,7 +101,7 @@ int main(int argc, char *argv[])
 
 	fprintf(stderr, "using '%s'\n"
 		"writing to '%s'\n", dmxdev, argv[1]);
-	tsfd = open(argv[1], O_WRONLY | O_CREAT | O_TRUNC | O_LARGEFILE, 0664);
+	tsfd = open(argv[1], O_WRONLY | O_CREAT | O_TRUNC, 0664);
 	if (tsfd == -1) {
 		perror("cannot write output file");
 		return 1;

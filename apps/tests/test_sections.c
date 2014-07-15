@@ -28,10 +28,9 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <errno.h>
+#include <libutil.h>
 
 #include <linux/dvb/dmx.h>
-
-#include "hex_dump.h"
 
 #define MAX_SECTION_SIZE 8192
 
@@ -86,7 +85,7 @@ void process_section(int fd)
 		if (errno != EOVERFLOW)
 			exit(1);
 	}
-	hex_dump(buf, bytes);
+	hexdump(buf, bytes, NULL, 0);
 	printf("\n");
 }
 
