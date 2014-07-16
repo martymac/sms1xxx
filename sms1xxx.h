@@ -186,11 +186,11 @@ struct sms1xxx_softc {
                                    TS packets (13 bit, without PIDALL) */
 #define PIDMAX          0x2000  /* maximum pid value that is valid
                                    for filtering (including special PIDALL) */
-/* PID status */
+/* PID status (masks) */
 #define PIDSTOPPED      0x4000  /* pid initialised but not used for filtering */
 #define pid_value(pid)  ((pid) & (PIDMAX_TS | PIDALL)) /* remove status
                                                           from PID */
-/* Our special values */
+/* Our special values (*not* masks !) */
 #define PIDEMPTY        0xFFFD  /* filter open but pid not initialized */
 #define PIDCLONED       0xFFFE  /* filter has a cloned device ready */
 #define PIDFREE         0xFFFF  /* filter available for use (initial state) */

@@ -4,6 +4,7 @@
     * Add support for DMX_ADD_PID and DMX_REMOVE_PID demuxer ioctls
     * Add support for DMX_OUT_TSDEMUX_TAP as output
       for DMX_SET_PES_FILTER demuxer ioctl
+    * Add support for DMX_GET_PES_PIDS demuxer ioctl
     * Update sample channel list apps/conf/channels-Paris.conf
     * Add a few test utilities within apps/tests
     * Code cleanup

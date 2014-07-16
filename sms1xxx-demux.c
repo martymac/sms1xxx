@@ -305,11 +305,12 @@ static struct cdevsw sms1xxx_demux_cdevsw = {
 /* Callback function for destroy_dev_sched_cb()
    Avoids race with dev_rel() when fastly opening/closing demux0 */
 static void
-sms1xxx_demux_filter_release(void *arg)
+sms1xxx_demux_filter_reset(void *arg)
 {
     struct filter *f = arg;
     f->dev = NULL;
     f->pid = PIDFREE;
+    f->type = FILTER_TYPE_NONE;
     return;
 }
 
@@ -921,8 +922,27 @@ sms1xxx_demux_close(struct cdev *dev, int flag, int mode, struct thread *p)
     TRACE(TRACE_MODULE,"destroying demux device, addr=%p\n", dev);
     dev->si_drv1 = NULL;
     dev->si_drv2 = NULL;
-    destroy_dev_sched_cb(dev, sms1xxx_demux_filter_release, f);
+    destroy_dev_sched_cb(dev, sms1xxx_demux_filter_reset, f);
 
+    return (0);
+}
+
+/* Return first 5 PIDs set within demux' PES filters
+   This function differs from sms1xxx_usb_getpidfilterlist() which
+   returns *hardware* PID filters set */
+static int
+sms1xxx_demux_getpidfilterlist(struct sms1xxx_softc *sc, u16 *pids)
+{
+    int j = 0;
+
+    bzero(pids, 5 * sizeof(u16));
+    for(int i = 0; (i < MAX_FILTERS) && (j < 5) ; ++i) {
+        if((sc->filter[i].type == FILTER_TYPE_PES) &&
+            (pid_value(sc->filter[i].pid) <= PIDMAX)) {
+            pids[j] = sc->filter[i].pid;
+            j++;
+        }
+    }
     return (0);
 }
 
@@ -1079,10 +1099,7 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
         ERR("DMX_SET_BUFFER_SIZE ioctl not implemented\n");
         break;
     case DMX_GET_PES_PIDS:
-        /* TODO Not implemented yet. May be done through a call to
-           sms1xxx_usb_getpidfilterlist() */
-        err = EINVAL;
-        ERR("DMX_GET_PES_PIDS ioctl not implemented yet\n");
+        err = sms1xxx_demux_getpidfilterlist(sc, arg);
         break;
     case DMX_GET_CAPS:
         err = EINVAL;
@@ -1175,7 +1192,7 @@ sms1xxx_demux_init(struct sms1xxx_softc *sc)
     /* Filters */
     int i;
     for(i = 0; i < MAX_FILTERS; ++i) {
-        sms1xxx_demux_filter_release(&sc->filter[i]);
+        sms1xxx_demux_filter_reset(&sc->filter[i]);
     }
 
     /* Devices */
@@ -1225,7 +1242,7 @@ sms1xxx_demux_exit(struct sms1xxx_softc *sc)
             TRACE(TRACE_MODULE,"destroying demux0.%d device, addr=%p\n",
                 i,sc->filter[i].dev);
             destroy_dev_sched_cb(sc->filter[i].dev,
-                sms1xxx_demux_filter_release, &sc->filter[i]);
+                sms1xxx_demux_filter_reset, &sc->filter[i]);
         }
     }
     if(sc->demux_clones != NULL) {
