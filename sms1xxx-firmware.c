@@ -141,9 +141,9 @@ sms1xxx_firmware_load_family2(struct sms1xxx_softc *sc, const u8 *data,
 
     TRACE(TRACE_FIRMWARE, "data=%p, datasize=%d\n", data, datasize);
 
-    const struct SmsFirmware_ST *firmware = (const struct SmsFirmware_ST *)data;
-    u32 mem_address = le32toh(firmware->StartAddress);
-    const u8 *payload = firmware->Payload;
+    const struct sms_firmware *firmware = (const struct sms_firmware *)data;
+    u32 mem_address = le32toh(firmware->start_address);
+    const u8 *payload = firmware->payload;
     int err = 0;
 
     if (sc->mode != DEVICE_MODE_NONE) {
@@ -160,16 +160,16 @@ sms1xxx_firmware_load_family2(struct sms1xxx_softc *sc, const u8 *data,
         /* Upload firmware using chunks <= SMS_MAX_PAYLOAD_SIZE */
         int payload_size = min((int) datasize, SMS_MAX_PAYLOAD_SIZE);
 
-        struct SmsDataDownload_ST Msg;
-        Msg.xMsgHeader.msgType = MSG_SMS_DATA_DOWNLOAD_REQ;
-        Msg.xMsgHeader.msgSrcId = 0;
-        Msg.xMsgHeader.msgDstId = HIF_TASK;
-        Msg.xMsgHeader.msgLength =
-            (u16)(sizeof(struct SmsMsgHdr_ST) + sizeof(u32) + payload_size);
-        Msg.xMsgHeader.msgFlags = 0;
+        struct sms_data_download Msg;
+        Msg.x_msg_header.msg_type = MSG_SMS_DATA_DOWNLOAD_REQ;
+        Msg.x_msg_header.msg_src_id = 0;
+        Msg.x_msg_header.msg_dst_id = HIF_TASK;
+        Msg.x_msg_header.msg_length =
+            (u16)(sizeof(struct sms_msg_hdr) + sizeof(u32) + payload_size);
+        Msg.x_msg_header.msg_flags = 0;
 
-        Msg.MemAddr = mem_address;
-        memcpy(Msg.Payload, payload, payload_size);
+        Msg.mem_addr = mem_address;
+        memcpy(Msg.payload, payload, payload_size);
 
         TRACE(TRACE_FIRMWARE, "sending firmware chunk, size=%d, "
             "remaining=%d\n", payload_size, datasize - payload_size);
@@ -177,7 +177,8 @@ sms1xxx_firmware_load_family2(struct sms1xxx_softc *sc, const u8 *data,
         sms1xxx_endian_handle_tx_message(&Msg);
         /* XXX honour SMS_ROM_NO_RESPONSE and use sms1xxx_usb_write() ? */
         err = sms1xxx_usb_write_and_wait(sc, (u8*)&Msg,
-            Msg.xMsgHeader.msgLength, DLG_DATA_DOWNLOAD_DONE, FRONTEND_TIMEOUT);
+            Msg.x_msg_header.msg_length, DLG_DATA_DOWNLOAD_DONE,
+            FRONTEND_TIMEOUT);
 
         if(err == 0) {
             payload += payload_size;
@@ -189,7 +190,7 @@ sms1xxx_firmware_load_family2(struct sms1xxx_softc *sc, const u8 *data,
 #ifdef SMS1XXX_DEBUG
     if ((err != 0) || (datasize > 0))
         TRACE(TRACE_FIRMWARE, "firmware upload error, err=%d, done=%zu, "
-            "remaining=%d\n", err, payload - firmware->Payload, datasize);
+            "remaining=%d\n", err, payload - firmware->payload, datasize);
 #endif
 
     if (err == 0) {
@@ -198,7 +199,7 @@ sms1xxx_firmware_load_family2(struct sms1xxx_softc *sc, const u8 *data,
             err = sms1xxx_usb_reloadexec(sc);
         /* or software download trigger on cold ones */
         else
-            err = sms1xxx_usb_swdtrigger(sc, firmware->StartAddress);
+            err = sms1xxx_usb_swdtrigger(sc, firmware->start_address);
 
         TRACE(TRACE_FIRMWARE, "trigger done, err=%d\n", err);
     }

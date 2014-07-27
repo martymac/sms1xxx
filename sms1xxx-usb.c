@@ -354,56 +354,56 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
         return;
     }
 
-    struct SmsMsgHdr_ST *phdr = (struct SmsMsgHdr_ST *)packet;
+    struct sms_msg_hdr *phdr = (struct sms_msg_hdr *)packet;
     void *p = phdr + 1;
 
     sms1xxx_endian_handle_message_header(phdr);
 
     TRACE(TRACE_USB_FLOW,"got %d bytes "
-        "(msgLength=%d, msgType=%d, msgFlags=%d)\n",
-        bytes, phdr->msgLength, phdr->msgType, phdr->msgFlags);
+        "(msg_length=%d, msg_type=%d, msg_flags=%d)\n",
+        bytes, phdr->msg_length, phdr->msg_type, phdr->msg_flags);
 
-    if (bytes < phdr->msgLength) {
-        ERR("invalid message : msgLength=%d, received only %d bytes\n",
-            phdr->msgLength, bytes);
+    if (bytes < phdr->msg_length) {
+        ERR("invalid message : msg_length=%d, received only %d bytes\n",
+            phdr->msg_length, bytes);
         return;
     }
 
-    if ((phdr->msgFlags & MSG_HDR_FLAG_SPLIT_MSG) &&
-        (bytes > phdr->msgLength)) {
+    if ((phdr->msg_flags & MSG_HDR_FLAG_SPLIT_MSG) &&
+        (bytes > phdr->msg_length)) {
         /* Compute start offset */
-        offset = bytes - phdr->msgLength;
-        if(offset < sizeof(struct SmsMsgHdr_ST)) {
+        offset = bytes - phdr->msg_length;
+        if(offset < sizeof(struct sms_msg_hdr)) {
             ERR("invalid message : offset too small\n");
             return;
         }
         /* Copy header to its new location */
-        memcpy((u8 *)phdr + offset, phdr, sizeof(struct SmsMsgHdr_ST));
+        memcpy((u8 *)phdr + offset, phdr, sizeof(struct sms_msg_hdr));
 
         TRACE(TRACE_USB_FLOW, "split message detected, offset=%d, "
             "header=%p, new=%p\n", offset, phdr, (u8 *)phdr + offset);
 
         /* Move pointer to its new location */
-        phdr = (struct SmsMsgHdr_ST *)((u8 *)phdr + offset);
+        phdr = (struct sms_msg_hdr *)((u8 *)phdr + offset);
     }
-    bytes = phdr->msgLength;
+    bytes = phdr->msg_length;
 
     /* Do we need to re-route ? */
-    if ((phdr->msgType == MSG_SMS_HO_PER_SLICES_IND) ||
-            (phdr->msgType == MSG_SMS_TRANSMISSION_IND)) {
+    if ((phdr->msg_type == MSG_SMS_HO_PER_SLICES_IND) ||
+            (phdr->msg_type == MSG_SMS_TRANSMISSION_IND)) {
         if (sc->mode == DEVICE_MODE_DVBT_BDA)
-            phdr->msgDstId = DVBT_BDA_CONTROL_MSG_ID;
+            phdr->msg_dst_id = DVBT_BDA_CONTROL_MSG_ID;
     }
 
     sms1xxx_endian_handle_rx_message(phdr);
 
-    switch (phdr->msgType) {
+    switch (phdr->msg_type) {
         case MSG_SMS_DVBT_BDA_DATA:
             {
                 TRACE(TRACE_USB_FLOW,"handling MSG_SMS_DVBT_BDA_DATA\n");
                 /* Send data to demuxer using chunks of PACKET_SIZE bytes */
                 /* Number of bytes remaining */
-                u32 remaining = bytes - sizeof(struct SmsMsgHdr_ST);
+                u32 remaining = bytes - sizeof(struct sms_msg_hdr);
                 /* Number of chunks sent */
                 u32 sent = 0;
                 while (remaining >= PACKET_SIZE) {
@@ -461,8 +461,8 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
             {
 #ifdef SMS1XXX_DEBUG
                 if(sms1xxxdbg & TRACE_USB_FLOW) {
-                    struct SmsVersionRes_ST *ver =
-                        (struct SmsVersionRes_ST *) phdr;
+                    struct sms_version_res *ver =
+                        (struct sms_version_res *) phdr;
                     TRACE(TRACE_USB_FLOW,
                         "handling MSG_SMS_GET_VERSION_EX_RES\n");
                     TRACE(TRACE_USB_FLOW,
@@ -471,13 +471,13 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
                     char label[MSG_VER_LABEL_SIZE + 1];
                     strncpy(label, ver->TextLabel, sizeof(label));
                     printf("+ label:        %s\n", label);
-                    printf("+ chipset:      0x%x\n", ver->ChipModel);
-                    printf("+ firmware id:  %d\n", ver->FirmwareId);
-                    printf("+ supp. protos: 0x%x\n", ver->SupportedProtocols);
-                    printf("+ version:      %d.%d\n", ver->VersionMajor,
-                        ver->VersionMinor);
-                    printf("+ romversion:   %d.%d\n", ver->RomVersionMajor,
-                        ver->RomVersionMinor);
+                    printf("+ chipset:      0x%x\n", ver->chip_model);
+                    printf("+ firmware id:  %d\n", ver->firmware_id);
+                    printf("+ supp. protos: 0x%x\n", ver->supported_protocols);
+                    printf("+ version:      %d.%d\n",
+                        ver->version_major, ver->version_minor);
+                    printf("+ romversion:   %d.%d\n",
+                        ver->rom_ver_major, ver->rom_ver_minor);
                 }
 #endif
                 break;
@@ -490,10 +490,10 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
                     "handling MSG_SMS_GET_PID_FILTER_LIST_RES\n");
 
 #ifdef SMS1XXX_DEBUG
-                struct SmsMsgData_ST *pdata =
-                    (struct SmsMsgData_ST *)((u8 *) packet);
-                u32 nfilt = pdata->msgData[1];
-                u32 *filterList = &(pdata->msgData[2]);
+                struct sms_msg_data *pdata =
+                    (struct sms_msg_data *)((u8 *) packet);
+                u32 nfilt = pdata->msg_data[1];
+                u32 *filterList = &(pdata->msg_data[2]);
 
                 TRACE(TRACE_FILTERS, "found %d filters in stack\n", nfilt);
                 for(int i = 0; i < nfilt; ++i) {
@@ -541,8 +541,8 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
         case MSG_SMS_IR_SAMPLES_IND:
             TRACE(TRACE_USB_FLOW, "handling MSG_SMS_IR_SAMPLES_IND\n");
             sms1xxx_ir_put_packet(sc,
-                (const u8 *)((u8 *)phdr + sizeof(struct SmsMsgHdr_ST)),
-                (u32)phdr->msgLength - sizeof(struct SmsMsgHdr_ST));
+                (const u8 *)((u8 *)phdr + sizeof(struct sms_msg_hdr)),
+                (u32)phdr->msg_length - sizeof(struct sms_msg_hdr));
             break;
         case MSG_SMS_GPIO_CONFIG_RES:
             TRACE(TRACE_USB_FLOW, "handling MSG_SMS_GPIO_CONFIG_RES\n");
@@ -565,7 +565,7 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
                 break;
             }
         default:
-            TRACE(TRACE_USB_FLOW,"unhandled msg type (%d)\n", phdr->msgType);
+            TRACE(TRACE_USB_FLOW,"unhandled msg type (%d)\n", phdr->msg_type);
 #ifdef SMS1XXX_DEBUG
             /* Dump raw data */
             TRACE(TRACE_USB_DUMP,"dumping %d bytes :\n", bytes);
@@ -859,11 +859,11 @@ sms1xxx_usb_setmode(struct sms1xxx_softc *sc, int mode)
 {
     TRACE(TRACE_USB,"mode=%d\n",mode);
 
-    struct SmsMsgHdr_ST Msg = {
+    struct sms_msg_hdr Msg = {
         MSG_SW_RELOAD_REQ,
         0,
         HIF_TASK,
-        sizeof(struct SmsMsgHdr_ST),
+        sizeof(struct sms_msg_hdr),
         0
     };
 
@@ -887,7 +887,7 @@ sms1xxx_usb_initdevice(struct sms1xxx_softc *sc, int mode)
 {
     TRACE(TRACE_USB,"mode=%d\n", mode);
 
-    struct SmsMsgData_ST InitMsg;
+    struct sms_msg_data InitMsg;
 
     if ((sms1xxx_firmware_name(sc->sc_type, mode) == NULL) ||
         (mode != sc->device->requested_mode)) {
@@ -895,12 +895,12 @@ sms1xxx_usb_initdevice(struct sms1xxx_softc *sc, int mode)
         return (EINVAL);
     }
 
-    InitMsg.xMsgHeader.msgType  = MSG_SMS_INIT_DEVICE_REQ;
-    InitMsg.xMsgHeader.msgSrcId = DVBT_BDA_CONTROL_MSG_ID;
-    InitMsg.xMsgHeader.msgDstId = HIF_TASK;
-    InitMsg.xMsgHeader.msgLength = sizeof(InitMsg);
-    InitMsg.xMsgHeader.msgFlags = 0;
-    InitMsg.msgData[0] = mode;
+    InitMsg.x_msg_header.msg_type  = MSG_SMS_INIT_DEVICE_REQ;
+    InitMsg.x_msg_header.msg_src_id = DVBT_BDA_CONTROL_MSG_ID;
+    InitMsg.x_msg_header.msg_dst_id = HIF_TASK;
+    InitMsg.x_msg_header.msg_length = sizeof(InitMsg);
+    InitMsg.x_msg_header.msg_flags = 0;
+    InitMsg.msg_data[0] = mode;
 
     sms1xxx_endian_handle_tx_message(&InitMsg);
     return (sms1xxx_usb_write_and_wait(sc, (u8*)&InitMsg, sizeof(InitMsg),
@@ -913,11 +913,11 @@ sms1xxx_usb_reloadstart(struct sms1xxx_softc *sc)
 {
     TRACE(TRACE_USB,"\n");
 
-    struct SmsMsgHdr_ST Msg = {
+    struct sms_msg_hdr Msg = {
         MSG_SW_RELOAD_START_REQ,
         0,
         HIF_TASK,
-        sizeof(struct SmsMsgHdr_ST),
+        sizeof(struct sms_msg_hdr),
         0
     };
 
@@ -932,11 +932,11 @@ sms1xxx_usb_reloadexec(struct sms1xxx_softc *sc)
 {
     TRACE(TRACE_USB,"\n");
 
-    struct SmsMsgHdr_ST Msg = {
+    struct sms_msg_hdr Msg = {
         MSG_SW_RELOAD_EXEC_REQ,
         0,
         HIF_TASK,
-        sizeof(struct SmsMsgHdr_ST),
+        sizeof(struct sms_msg_hdr),
         0
     };
 
@@ -951,26 +951,26 @@ sms1xxx_usb_swdtrigger(struct sms1xxx_softc *sc, u32 start_address)
 
     TRACE(TRACE_USB,"start_address=%d\n", start_address);
 
-    /* SmsMsgData_ST with extra data */
-    int msgSize = sizeof(struct SmsMsgData_ST) + (sizeof(u32) * 4);
+    /* sms_msg_data with extra data */
+    int msgSize = sizeof(struct sms_msg_data) + (sizeof(u32) * 4);
 
-    struct SmsMsgData_ST *TriggerMsg = malloc(msgSize, M_USBDEV, M_WAITOK);
+    struct sms_msg_data *TriggerMsg = malloc(msgSize, M_USBDEV, M_WAITOK);
     if(TriggerMsg == NULL) {
         ERR("could not allocate msg buffer\n");
         return (ENOMEM);
     }
 
-    TriggerMsg->xMsgHeader.msgType = MSG_SMS_SWDOWNLOAD_TRIGGER_REQ;
-    TriggerMsg->xMsgHeader.msgSrcId = 0;
-    TriggerMsg->xMsgHeader.msgDstId = HIF_TASK;
-    TriggerMsg->xMsgHeader.msgLength = msgSize;
-    TriggerMsg->xMsgHeader.msgFlags = 0;
+    TriggerMsg->x_msg_header.msg_type = MSG_SMS_SWDOWNLOAD_TRIGGER_REQ;
+    TriggerMsg->x_msg_header.msg_src_id = 0;
+    TriggerMsg->x_msg_header.msg_dst_id = HIF_TASK;
+    TriggerMsg->x_msg_header.msg_length = msgSize;
+    TriggerMsg->x_msg_header.msg_flags = 0;
 
-    TriggerMsg->msgData[0] = start_address; /* Entry point */
-    TriggerMsg->msgData[1] = 5;             /* Priority */
-    TriggerMsg->msgData[2] = 0x200;         /* Stack size */
-    TriggerMsg->msgData[3] = 0;             /* Parameter */
-    TriggerMsg->msgData[4] = 4;             /* Task ID */
+    TriggerMsg->msg_data[0] = start_address; /* Entry point */
+    TriggerMsg->msg_data[1] = 5;             /* Priority */
+    TriggerMsg->msg_data[2] = 0x200;         /* Stack size */
+    TriggerMsg->msg_data[3] = 0;             /* Parameter */
+    TriggerMsg->msg_data[4] = 4;             /* Task ID */
 
     sms1xxx_endian_handle_tx_message(TriggerMsg);
     /* XXX honour SMS_ROM_NO_RESPONSE and use sms1xxx_usb_write() ? */
@@ -990,11 +990,11 @@ sms1xxx_usb_getversion(struct sms1xxx_softc *sc)
 {
     TRACE(TRACE_USB,"\n");
 
-    struct SmsMsgHdr_ST Msg = {
+    struct sms_msg_hdr Msg = {
         MSG_SMS_GET_VERSION_EX_REQ,
         0,
         HIF_TASK,
-        sizeof(struct SmsMsgHdr_ST),
+        sizeof(struct sms_msg_hdr),
         0
     };
 
@@ -1009,11 +1009,11 @@ sms1xxx_usb_getstatistics(struct sms1xxx_softc *sc)
 {
     TRACE(TRACE_USB,"\n");
 
-    struct SmsMsgHdr_ST Msg = {
+    struct sms_msg_hdr Msg = {
         MSG_SMS_GET_STATISTICS_REQ,
         DVBT_BDA_CONTROL_MSG_ID,
         HIF_TASK,
-        sizeof(struct SmsMsgHdr_ST),
+        sizeof(struct sms_msg_hdr),
         0
     };
 
@@ -1029,11 +1029,11 @@ sms1xxx_usb_getpidfilterlist(struct sms1xxx_softc *sc)
 {
     TRACE(TRACE_USB,"\n");
 
-    struct SmsMsgHdr_ST Msg = {
+    struct sms_msg_hdr Msg = {
         MSG_SMS_GET_PID_FILTER_LIST_REQ,
         DVBT_BDA_CONTROL_MSG_ID,
         HIF_TASK,
-        sizeof(struct SmsMsgHdr_ST),
+        sizeof(struct sms_msg_hdr),
         0
     };
 
@@ -1049,7 +1049,7 @@ sms1xxx_usb_setfrequency(struct sms1xxx_softc *sc, u32 frequency,
     INFO("set frequency=%u, bandwidth=%u\n", frequency, bandwidth);
 
     struct {
-        struct SmsMsgHdr_ST Msg;
+        struct sms_msg_hdr Msg;
         u32    Data[3];
     } Msg;
 
@@ -1061,11 +1061,11 @@ sms1xxx_usb_setfrequency(struct sms1xxx_softc *sc, u32 frequency,
 
     sc->fe_status = 0;
 
-    Msg.Msg.msgType   = MSG_SMS_RF_TUNE_REQ;
-    Msg.Msg.msgSrcId  = DVBT_BDA_CONTROL_MSG_ID;
-    Msg.Msg.msgDstId  = HIF_TASK;
-    Msg.Msg.msgLength = sizeof(Msg);
-    Msg.Msg.msgFlags  = 0;
+    Msg.Msg.msg_type   = MSG_SMS_RF_TUNE_REQ;
+    Msg.Msg.msg_src_id  = DVBT_BDA_CONTROL_MSG_ID;
+    Msg.Msg.msg_dst_id  = HIF_TASK;
+    Msg.Msg.msg_length = sizeof(Msg);
+    Msg.Msg.msg_flags  = 0;
     Msg.Data[0] = frequency;
     switch (bandwidth) {
         case BANDWIDTH_8_MHZ: Msg.Data[1] = BW_8_MHZ; break;
@@ -1098,19 +1098,19 @@ sms1xxx_usb_add_pid(struct sms1xxx_softc *sc, u16 pid)
 {
     INFO("add PID %u(0x%x)\n", pid, pid);
 
-    struct SmsMsgData_ST PidMsg;
+    struct sms_msg_data PidMsg;
 
     if(pid > PIDMAX) {
         ERR("invalid pid specified %d\n", pid);
         return (EINVAL);
     }
 
-    PidMsg.xMsgHeader.msgType  = MSG_SMS_ADD_PID_FILTER_REQ;
-    PidMsg.xMsgHeader.msgSrcId = DVBT_BDA_CONTROL_MSG_ID;
-    PidMsg.xMsgHeader.msgDstId = HIF_TASK;
-    PidMsg.xMsgHeader.msgLength = sizeof(PidMsg);
-    PidMsg.xMsgHeader.msgFlags = 0;
-    PidMsg.msgData[0] = pid;
+    PidMsg.x_msg_header.msg_type  = MSG_SMS_ADD_PID_FILTER_REQ;
+    PidMsg.x_msg_header.msg_src_id = DVBT_BDA_CONTROL_MSG_ID;
+    PidMsg.x_msg_header.msg_dst_id = HIF_TASK;
+    PidMsg.x_msg_header.msg_length = sizeof(PidMsg);
+    PidMsg.x_msg_header.msg_flags = 0;
+    PidMsg.msg_data[0] = pid;
 
     sms1xxx_endian_handle_tx_message(&PidMsg);
     return (sms1xxx_usb_write_and_wait(sc, (u8*)&PidMsg, sizeof(PidMsg),
@@ -1123,19 +1123,19 @@ sms1xxx_usb_remove_pid(struct sms1xxx_softc *sc, u16 pid)
 {
     INFO("remove PID %u(0x%x)\n", pid, pid);
 
-    struct SmsMsgData_ST PidMsg;
+    struct sms_msg_data PidMsg;
 
     if(pid > PIDMAX) {
         ERR("invalid pid specified %d\n", pid);
         return (EINVAL);
     }
 
-    PidMsg.xMsgHeader.msgType  = MSG_SMS_REMOVE_PID_FILTER_REQ;
-    PidMsg.xMsgHeader.msgSrcId = DVBT_BDA_CONTROL_MSG_ID;
-    PidMsg.xMsgHeader.msgDstId = HIF_TASK;
-    PidMsg.xMsgHeader.msgLength = sizeof(PidMsg);
-    PidMsg.xMsgHeader.msgFlags = 0;
-    PidMsg.msgData[0] = pid;
+    PidMsg.x_msg_header.msg_type  = MSG_SMS_REMOVE_PID_FILTER_REQ;
+    PidMsg.x_msg_header.msg_src_id = DVBT_BDA_CONTROL_MSG_ID;
+    PidMsg.x_msg_header.msg_dst_id = HIF_TASK;
+    PidMsg.x_msg_header.msg_length = sizeof(PidMsg);
+    PidMsg.x_msg_header.msg_flags = 0;
+    PidMsg.msg_data[0] = pid;
 
     sms1xxx_endian_handle_tx_message(&PidMsg);
     return (sms1xxx_usb_write_and_wait(sc, (u8*)&PidMsg, sizeof(PidMsg),
@@ -1152,14 +1152,14 @@ sms1xxx_usb_ir_start(struct sms1xxx_softc *sc)
 {
     TRACE(TRACE_USB,"\n");
 
-    struct SmsMsgData_ST2 Msg;
-    Msg.xMsgHeader.msgType = MSG_SMS_START_IR_REQ;
-    Msg.xMsgHeader.msgSrcId = 0;
-    Msg.xMsgHeader.msgDstId = HIF_TASK;
-    Msg.xMsgHeader.msgLength = sizeof(struct SmsMsgData_ST2);
-    Msg.xMsgHeader.msgFlags = 0;
-    Msg.msgData[0] = sc->ir.controller;
-    Msg.msgData[1] = sc->ir.timeout;
+    struct sms_msg_data2 Msg;
+    Msg.x_msg_header.msg_type = MSG_SMS_START_IR_REQ;
+    Msg.x_msg_header.msg_src_id = 0;
+    Msg.x_msg_header.msg_dst_id = HIF_TASK;
+    Msg.x_msg_header.msg_length = sizeof(struct sms_msg_data2);
+    Msg.x_msg_header.msg_flags = 0;
+    Msg.msg_data[0] = sc->ir.controller;
+    Msg.msg_data[1] = sc->ir.timeout;
 
     sms1xxx_endian_handle_tx_message(&Msg);
     return (sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),
@@ -1183,8 +1183,8 @@ sms1xxx_usb_gpio_configure(struct sms1xxx_softc *sc, u32 pin_num,
     u32 groupCfg;
 
     struct SetGpioMsg {
-        struct SmsMsgHdr_ST xMsgHeader;
-        u32 msgData[6];
+        struct sms_msg_hdr x_msg_header;
+        u32 msg_data[6];
     } Msg;
 
     if (pin_num > MAX_GPIO_PIN_NUMBER)
@@ -1193,34 +1193,34 @@ sms1xxx_usb_gpio_configure(struct sms1xxx_softc *sc, u32 pin_num,
     if (gpio_config == NULL)
         return (EINVAL);
 
-    Msg.xMsgHeader.msgSrcId = DVBT_BDA_CONTROL_MSG_ID;
-    Msg.xMsgHeader.msgDstId = HIF_TASK;
-    Msg.xMsgHeader.msgFlags = 0;
-    Msg.xMsgHeader.msgLength = (u16) sizeof(struct SetGpioMsg);
-    Msg.msgData[0] = pin_num;
+    Msg.x_msg_header.msg_src_id = DVBT_BDA_CONTROL_MSG_ID;
+    Msg.x_msg_header.msg_dst_id = HIF_TASK;
+    Msg.x_msg_header.msg_flags = 0;
+    Msg.x_msg_header.msg_length = (u16) sizeof(struct SetGpioMsg);
+    Msg.msg_data[0] = pin_num;
 
     if ((sc->sc_type & SMS1XXX_FAMILY_MASK) != SMS1XXX_FAMILY2) {
-        Msg.xMsgHeader.msgType = MSG_SMS_GPIO_CONFIG_REQ;
+        Msg.x_msg_header.msg_type = MSG_SMS_GPIO_CONFIG_REQ;
         if (sms1xxx_gpio_get_pin_params(pin_num, &Translatedpin_num,
             &GroupNum, &groupCfg) != 0)
             return (EINVAL);
 
-        Msg.msgData[1] = Translatedpin_num;
-        Msg.msgData[2] = GroupNum;
+        Msg.msg_data[1] = Translatedpin_num;
+        Msg.msg_data[2] = GroupNum;
         ElectricChar = (gpio_config->PullUpDown)
             | (gpio_config->InputCharacteristics << 2)
             | (gpio_config->OutputSlewRate << 3)
             | (gpio_config->OutputDriving << 4);
-        Msg.msgData[3] = ElectricChar;
-        Msg.msgData[4] = gpio_config->Direction;
-        Msg.msgData[5] = groupCfg;
+        Msg.msg_data[3] = ElectricChar;
+        Msg.msg_data[4] = gpio_config->Direction;
+        Msg.msg_data[5] = groupCfg;
     } else {
-        Msg.xMsgHeader.msgType = MSG_SMS_GPIO_CONFIG_EX_REQ;
-        Msg.msgData[1] = gpio_config->PullUpDown;
-        Msg.msgData[2] = gpio_config->OutputSlewRate;
-        Msg.msgData[3] = gpio_config->OutputDriving;
-        Msg.msgData[4] = gpio_config->Direction;
-        Msg.msgData[5] = 0;
+        Msg.x_msg_header.msg_type = MSG_SMS_GPIO_CONFIG_EX_REQ;
+        Msg.msg_data[1] = gpio_config->PullUpDown;
+        Msg.msg_data[2] = gpio_config->OutputSlewRate;
+        Msg.msg_data[3] = gpio_config->OutputDriving;
+        Msg.msg_data[4] = gpio_config->Direction;
+        Msg.msg_data[5] = 0;
     }
 
     sms1xxx_endian_handle_tx_message(&Msg);
@@ -1234,21 +1234,21 @@ sms1xxx_usb_gpio_set_level(struct sms1xxx_softc *sc, u8 pin_num, u8 new_level) {
     TRACE(TRACE_USB, "pin_num=%d, new_level=%d\n", pin_num, new_level);
 
     struct SetGpioMsg {
-        struct SmsMsgHdr_ST xMsgHeader;
-        u32 msgData[3]; /* keep it 3 ! */
+        struct sms_msg_hdr x_msg_header;
+        u32 msg_data[3]; /* keep it 3 ! */
     } Msg;
 
     if ((new_level > 1) || (pin_num > MAX_GPIO_PIN_NUMBER) ||
         (pin_num > MAX_GPIO_PIN_NUMBER))
         return (EINVAL);
 
-    Msg.xMsgHeader.msgSrcId = DVBT_BDA_CONTROL_MSG_ID;
-    Msg.xMsgHeader.msgDstId = HIF_TASK;
-    Msg.xMsgHeader.msgFlags = 0;
-    Msg.xMsgHeader.msgType = MSG_SMS_GPIO_SET_LEVEL_REQ;
-    Msg.xMsgHeader.msgLength = (u16) sizeof(struct SetGpioMsg);
-    Msg.msgData[0] = pin_num;
-    Msg.msgData[1] = new_level;
+    Msg.x_msg_header.msg_src_id = DVBT_BDA_CONTROL_MSG_ID;
+    Msg.x_msg_header.msg_dst_id = HIF_TASK;
+    Msg.x_msg_header.msg_flags = 0;
+    Msg.x_msg_header.msg_type = MSG_SMS_GPIO_SET_LEVEL_REQ;
+    Msg.x_msg_header.msg_length = (u16) sizeof(struct SetGpioMsg);
+    Msg.msg_data[0] = pin_num;
+    Msg.msg_data[1] = new_level;
 
     sms1xxx_endian_handle_tx_message(&Msg);
     return (sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),
@@ -1264,20 +1264,20 @@ sms1xxx_usb_gpio_get_level(struct sms1xxx_softc *sc, u8 pin_num,
     int rc = 0;
 
     struct SetGpioMsg {
-        struct SmsMsgHdr_ST xMsgHeader;
-        u32 msgData[2];
+        struct sms_msg_hdr x_msg_header;
+        u32 msg_data[2];
     } Msg;
 
     if (pin_num > MAX_GPIO_PIN_NUMBER)
         return (EINVAL);
 
-    Msg.xMsgHeader.msgSrcId = DVBT_BDA_CONTROL_MSG_ID;
-    Msg.xMsgHeader.msgDstId = HIF_TASK;
-    Msg.xMsgHeader.msgFlags = 0;
-    Msg.xMsgHeader.msgType = MSG_SMS_GPIO_GET_LEVEL_REQ;
-    Msg.xMsgHeader.msgLength = (u16) sizeof(struct SetGpioMsg);
-    Msg.msgData[0] = pin_num;
-    Msg.msgData[1] = 0;
+    Msg.x_msg_header.msg_src_id = DVBT_BDA_CONTROL_MSG_ID;
+    Msg.x_msg_header.msg_dst_id = HIF_TASK;
+    Msg.x_msg_header.msg_flags = 0;
+    Msg.x_msg_header.msg_type = MSG_SMS_GPIO_GET_LEVEL_REQ;
+    Msg.x_msg_header.msg_length = (u16) sizeof(struct SetGpioMsg);
+    Msg.msg_data[0] = pin_num;
+    Msg.msg_data[1] = 0;
 
     sms1xxx_endian_handle_tx_message(&Msg);
     rc = sms1xxx_usb_write_and_wait(sc, (u8*)&Msg, sizeof(Msg),

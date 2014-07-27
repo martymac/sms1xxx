@@ -184,41 +184,67 @@ typedef STAILQ_HEAD(, sms1xxx_data) sms1xxx_datahead;
  * Communication structures *
  ****************************/
 
-#define MSG_HDR_FLAG_SPLIT_MSG          4
-struct SmsMsgHdr_ST {
-    u16 msgType;
-    u8  msgSrcId;
-    u8  msgDstId;
-    u16 msgLength; /* Length of entire message, including header */
-    u16 msgFlags;
+#define MSG_HDR_FLAG_SPLIT_MSG              4
+
+struct sms_msg_hdr {
+    u16 msg_type;
+    u8  msg_src_id;
+    u8  msg_dst_id;
+    u16 msg_length; /* length of entire message, including header */
+    u16 msg_flags;
 };
 
-struct SmsMsgData_ST {
-    struct SmsMsgHdr_ST xMsgHeader;
-    u32                 msgData[1];
+struct sms_msg_data {
+    struct sms_msg_hdr x_msg_header;
+    u32 msg_data[1];
 };
 
-struct SmsMsgData_ST2 {
-    struct SmsMsgHdr_ST xMsgHeader;
-    u32                 msgData[2];
+struct sms_msg_data2 {
+    struct sms_msg_hdr x_msg_header;
+    u32 msg_data[2];
 };
 
-#define SMS_MAX_PAYLOAD_SIZE            240
-struct SmsDataDownload_ST {
-    struct SmsMsgHdr_ST xMsgHeader;
-    u32                 MemAddr;
-    u8                  Payload[SMS_MAX_PAYLOAD_SIZE];
+#define SMS_MAX_PAYLOAD_SIZE                240
+struct sms_data_download {
+    struct sms_msg_hdr x_msg_header;
+    u32 mem_addr;
+    u8  payload[SMS_MAX_PAYLOAD_SIZE];
 };
 
-struct SmsFirmware_ST {
-    u32 CheckSum;
-    u32 Length;
-    u32 StartAddress;
-    u8  Payload[1];
+#define MSG_VER_LABEL_SIZE                  34
+struct sms_version_res {
+    struct sms_msg_hdr x_msg_header;
+
+    u16 chip_model;             /* e.g. 0x1102 for SMS-1102 "Nova" */
+    u8  step;                   /* 0 - step A */
+    u8  metal_fix;              /* 0 - Metal 0 */
+
+    u8  firmware_id;            /* 0xFF if ROM, otherwise the value indicated
+                                   by SMSHOSTLIB_DEVICE_MODES_E */
+    u8  supported_protocols;    /* Bitwise OR combination of
+                                   supported protocols */
+
+    u8  version_major;
+    u8  version_minor;
+    u8  version_patch;
+    u8  version_field_patch;
+
+    u8  rom_ver_major;
+    u8  rom_ver_minor;
+    u8  rom_ver_patch;
+    u8  rom_ver_field_patch;
+
+    u8  TextLabel[MSG_VER_LABEL_SIZE];
 };
 
+struct sms_firmware {
+    u32 check_sum;
+    u32 length;
+    u32 start_address;
+    u8  payload[1];
+};
 
-/* statistics information returned as response for
+/* Statistics information returned as response for
  * SmsHostApiGetstatistics_Req */
 struct sms_stats {
     u32 reserved;           /* reserved */
@@ -346,16 +372,6 @@ struct sms_pid_data {
     struct sms_pid_stats_data pid_statistics;
 };
 
-#define CORRECT_STAT_RSSI(_stat) ((_stat).RSSI *= -1)
-#define CORRECT_STAT_BANDWIDTH(_stat) (_stat.Bandwidth = 8 - _stat.Bandwidth)
-#define CORRECT_STAT_TRANSMISSON_MODE(_stat) \
-    if (_stat.TransmissionMode == 0) \
-        _stat.TransmissionMode = 2; \
-    else if (_stat.TransmissionMode == 1) \
-        _stat.TransmissionMode = 8; \
-    else \
-        _stat.TransmissionMode = 4;
-
 struct sms_tx_stats {
     u32 frequency;          /* frequency in Hz */
     u32 bandwidth;          /* bandwidth in MHz */
@@ -407,7 +423,7 @@ struct sms_rx_stats {
     s32 mrc_in_band_pwr;    /* In band power in dBM */
 };
 
-/* statistics information returned as response for
+/* Statistics information returned as response for
  * SmsHostApiGetstatisticsEx_Req for DVB applications, SMS1100 and up */
 struct sms_stats_dvb {
     /* Reception */
@@ -449,49 +465,6 @@ struct RECEPTION_STATISTICS_PER_SLICES_S {
     s32 MRC_SNR;            /* dB */
     s32 mrc_in_band_pwr;    /* In band power in dBM */
     s32 MRC_RSSI;           /* dBm */
-};
-
-struct SRVM_SIGNAL_STATUS_S {
-    u32 result;
-    u32 snr;
-    u32 tsPackets;
-    u32 etsPackets;
-    u32 constellation;
-    u32 hpCode;
-    u32 tpsSrvIndLP;
-    u32 tpsSrvIndHP;
-    u32 cellId;
-    u32 reason;
-
-    s32 inBandPower;
-    u32 requestId;
-};
-
-struct SmsVersionRes_ST {
-    struct SmsMsgHdr_ST xMsgHeader;
-
-    u16 ChipModel;          /* e.g. 0x1102 for SMS-1102 "Nova" */
-    u8  Step;               /* 0 - Step A */
-    u8  MetalFix;           /* 0 - Metal 0 */
-
-    u8  FirmwareId;         /* 0xFF if ROM, otherwise the
-                             * value indicated by
-                             * SMSHOSTLIB_DEVICE_MODES_E */
-    u8  SupportedProtocols; /* Bitwise OR combination of
-                             * supported protocols */
-
-    u8  VersionMajor;
-    u8  VersionMinor;
-    u8  VersionPatch;
-    u8  VersionFieldPatch;
-
-    u8  RomVersionMajor;
-    u8  RomVersionMinor;
-    u8  RomVersionPatch;
-    u8  RomVersionFieldPatch;
-
-#define MSG_VER_LABEL_SIZE            34
-    u8  TextLabel[MSG_VER_LABEL_SIZE];
 };
 
 #endif
