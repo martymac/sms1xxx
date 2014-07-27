@@ -41,6 +41,8 @@ typedef u_int8_t    u8;
 typedef u_int16_t   u16;
 typedef u_int32_t   u32;
 typedef int32_t     s32;
+typedef u_int64_t   u64;
+typedef int64_t     s64;
 #if !defined(__bool_true_false_are_defined)
 typedef boolean_t   bool;
 #endif
@@ -215,112 +217,115 @@ struct SmsFirmware_ST {
     u8  Payload[1];
 };
 
-struct SMSHOSTLIB_STATISTICS_ST {
-    u32 Reserved;           /* Reserved */
+
+/* statistics information returned as response for
+ * SmsHostApiGetstatistics_Req */
+struct sms_stats {
+    u32 reserved;           /* reserved */
 
     /* Common parameters */
-    u32 IsRfLocked;         /* 0 - not locked, 1 - locked */
-    u32 IsDemodLocked;      /* 0 - not locked, 1 - locked */
-    u32 IsExternalLNAOn;    /* 0 - external LNA off, 1 - external LNA on */
+    u32 is_rf_locked;       /* 0 - not locked, 1 - locked */
+    u32 is_demod_locked;    /* 0 - not locked, 1 - locked */
+    u32 is_external_lna_on; /* 0 - external LNA off, 1 - external LNA on */
 
     /* Reception quality */
     s32 SNR;                /* dB */
-    u32 BER;                /* Post Viterbi BER [1E-5] */
+    u32 ber;                /* Post Viterbi ber [1E-5] */
     u32 FIB_CRC;            /* CRC errors percentage, valid only for DAB */
-    u32 TS_PER;             /* Transport stream PER, 0xFFFFFFFF indicate N/A,
-                               valid only for DVB-T/H */
+    u32 ts_per;             /* Transport stream PER,
+                               0xFFFFFFFF indicate N/A, valid only for
+                               DVB-T/H */
     u32 MFER;               /* DVB-H frame error rate in percentage,
                                0xFFFFFFFF indicate N/A, valid only for DVB-H */
     s32 RSSI;               /* dBm */
-    s32 InBandPwr;          /* In band power in dBM */
-    s32 CarrierOffset;      /* Carrier Offset in bin/1024 */
+    s32 in_band_pwr;        /* In band power in dBM */
+    s32 carrier_offset;     /* Carrier Offset in bin/1024 */
 
     /* Transmission parameters */
-    u32 Frequency;          /* Frequency in Hz */
-    u32 Bandwidth;          /* Bandwidth in MHz,
-                               valid only for DVB-T/H */
-    u32 TransmissionMode;   /* Transmission Mode, for DAB modes 1-4,
+    u32 frequency;          /* frequency in Hz */
+    u32 bandwidth;          /* bandwidth in MHz, valid only for DVB-T/H */
+    u32 transmission_mode;  /* Transmission Mode, for DAB modes 1-4,
                                for DVB-T/H FFT mode carriers in Kilos */
-    u32 ModemState;         /* from SMSHOSTLIB_DVB_MODEM_STATE_ET,
+    u32 modem_state;        /* from SMSHOSTLIB_DVB_MODEM_STATE_ET,
                                valid only for DVB-T/H */
-    u32 GuardInterval;      /* Guard Interval from
+    u32 guard_interval;     /* Guard Interval from
                                SMSHOSTLIB_GUARD_INTERVALS_ET,
                                valid only for DVB-T/H */
-    u32 CodeRate;           /* Code Rate from SMSHOSTLIB_CODE_RATE_ET,
+    u32 code_rate;          /* Code Rate from SMSHOSTLIB_CODE_RATE_ET,
                                valid only for DVB-T/H */
-    u32 LPCodeRate;         /* Low Priority Code Rate from
-                               SMSHOSTLIB_CODE_RATE_ET,
+    u32 lp_code_rate;       /* Low Priority Code Rate from
+                               SMSHOSTLIB_CODE_RATE_ET, valid only for
+                               DVB-T/H */
+    u32 hierarchy;          /* hierarchy from SMSHOSTLIB_HIERARCHY_ET,
                                valid only for DVB-T/H */
-    u32 Hierarchy;          /* Hierarchy from SMSHOSTLIB_HIERARCHY_ET,
-                               valid only for DVB-T/H */
-    u32 Constellation;      /* Constellation from
-                               SMSHOSTLIB_CONSTELLATION_ET,
-                               valid only for DVB-T/H */
+    u32 constellation;      /* constellation from
+                               SMSHOSTLIB_CONSTELLATION_ET, valid only for
+                               DVB-T/H */
 
     /* Burst parameters, valid only for DVB-H */
-    u32 BurstSize;          /* Current burst size in bytes,
+    u32 burst_size;         /* Current burst size in bytes,
                                valid only for DVB-H */
-    u32 BurstDuration;      /* Current burst duration in mSec,
+    u32 burst_duration;     /* Current burst duration in mSec,
                                valid only for DVB-H */
-    u32 BurstCycleTime;     /* Current burst cycle time in mSec,
+    u32 burst_cycle_time;   /* Current burst cycle time in mSec,
                                valid only for DVB-H */
-    u32 CalculatedBurstCycleTime;   /* Current burst cycle time in mSec,
-                                       as calculated by demodulator,
-                                       valid only for DVB-H */
-    u32 NumOfRows;          /* Number of rows in MPE table,
+    u32 calc_burst_cycle_time;  /* Current burst cycle time in mSec,
+                                   as calculated by demodulator, valid only for
+                                   DVB-H */
+    u32 num_of_rows;        /* Number of rows in MPE table,
                                valid only for DVB-H */
-    u32 NumOfPaddCols;      /* Number of padding columns in MPE table,
+    u32 num_of_padd_cols;   /* Number of padding columns in MPE table,
                                valid only for DVB-H */
-    u32 NumOfPunctCols;     /* Number of puncturing columns in MPE table,
+    u32 num_of_punct_cols;  /* Number of puncturing columns in MPE table,
                                valid only for DVB-H */
-    u32 ErrorTSPackets;     /* Number of erroneous
-                               transport-stream packets */
-    u32 TotalTSPackets;     /* Total number of transport-stream packets */
-    u32 NumOfValidMpeTlbs;  /* Number of MPE tables which do not include
-                               errors after MPE RS decoding */
-    u32 NumOfInvalidMpeTlbs;/* Number of MPE tables which include errors
-                               after MPE RS decoding */
-    u32 NumOfCorrectedMpeTlbs;      /* Number of MPE tables which were
+    u32 error_ts_packets;   /* Number of erroneous transport-stream packets */
+    u32 total_ts_packets;   /* Total number of transport-stream packets */
+    u32 num_of_valid_mpe_tlbs;  /* Number of MPE tables which do not include
+                                   errors after MPE RS decoding */
+    u32 num_of_invalid_mpe_tlbs;/* Number of MPE tables which include errors
+                                   after MPE RS decoding */
+    u32 num_of_corrected_mpe_tlbs;  /* Number of MPE tables which were
                                        corrected by MPE RS decoding */
+
     /* Common params */
-    u32 BERErrorCount;      /* Number of errornous SYNC bits. */
-    u32 BERBitCount;        /* Total number of SYNC bits. */
+    u32 ber_error_count;    /* Number of errornous SYNC bits. */
+    u32 ber_bit_count;      /* Total number of SYNC bits. */
 
     /* Interface information */
-    u32 SmsToHostTxErrors;  /* Total number of transmission errors. */
+    u32 sms_to_host_tx_errors;  /* Total number of transmission errors. */
 
     /* DAB/T-DMB */
-    u32 PreBER;             /* DAB/T-DMB only: Pre Viterbi BER [1E-5] */
+    u32 pre_ber;            /* DAB/T-DMB only: Pre Viterbi ber [1E-5] */
 
     /* DVB-H TPS parameters */
-    u32 CellId;             /* TPS Cell ID in bits 15..0, bits 31..16 zero;
+    u32 cell_id;            /* TPS Cell ID in bits 15..0, bits 31..16 zero;
                                if set to 0xFFFFFFFF cell_id not yet recovered */
-    u32 DvbhSrvIndHP;       /* DVB-H service indication info, bit 1 -
+    u32 dvbh_srv_ind_hp;    /* DVB-H service indication info, bit 1 -
                                Time Slicing indicator, bit 0 - MPE-FEC
                                indicator */
-    u32 DvbhSrvIndLP;       /* DVB-H service indication info, bit 1 -
+    u32 dvbh_srv_ind_lp;    /* DVB-H service indication info, bit 1 -
                                Time Slicing indicator, bit 0 - MPE-FEC
                                indicator */
 
-    u32 NumMPEReceived;     /* DVB-H, Num MPE section received */
+    u32 num_mpe_received;   /* DVB-H, Num MPE section received */
 
-    u32 ReservedFields[10]; /* Reserved */
+    u32 reservedFields[10]; /* reserved */
 };
 
 /* Statistics information returned as response for
  * SmsHostApiGetStatistics_Req, SMS1000 */
-struct SmsMsgStatisticsInfo_ST {
-    u32 RequestResult;
+struct sms_msg_statistics_info {
+    u32 request_result;
 
-    struct SMSHOSTLIB_STATISTICS_ST Stat;
+    struct sms_stats stat;
 
     /* Split the calc of the SNR in DAB */
-    u32 Signal; /* dB */
-    u32 Noise;  /* dB */
+    u32 signal; /* dB */
+    u32 noise;  /* dB */
 
 };
 
-struct PID_STATISTICS_DATA_S {
+struct sms_pid_stats_data {
     struct PID_BURST_S {
         u32 size;
         u32 padding_cols;
@@ -335,10 +340,10 @@ struct PID_STATISTICS_DATA_S {
     u32 tot_cor_tbl;
 };
 
-struct PID_DATA_S {
+struct sms_pid_data {
     u32 pid;
     u32 num_rows;
-    struct PID_STATISTICS_DATA_S pid_statistics;
+    struct sms_pid_stats_data pid_statistics;
 };
 
 #define CORRECT_STAT_RSSI(_stat) ((_stat).RSSI *= -1)
@@ -351,66 +356,99 @@ struct PID_DATA_S {
     else \
         _stat.TransmissionMode = 4;
 
-struct TRANSMISSION_STATISTICS_S {
-    u32 Frequency;          /* Frequency in Hz */
-    u32 Bandwidth;          /* Bandwidth in MHz */
-    u32 TransmissionMode;   /* FFT mode carriers in Kilos */
-    u32 GuardInterval;      /* Guard Interval from
+struct sms_tx_stats {
+    u32 frequency;          /* frequency in Hz */
+    u32 bandwidth;          /* bandwidth in MHz */
+    u32 transmission_mode;  /* FFT mode carriers in Kilos */
+    u32 guard_interval;     /* Guard Interval from
                                SMSHOSTLIB_GUARD_INTERVALS_ET */
-    u32 CodeRate;           /* Code Rate from SMSHOSTLIB_CODE_RATE_ET */
-    u32 LPCodeRate;         /* Low Priority Code Rate from
+    u32 code_rate;          /* Code Rate from SMSHOSTLIB_CODE_RATE_ET */
+    u32 lp_code_rate;       /* Low Priority Code Rate from
                                SMSHOSTLIB_CODE_RATE_ET */
-    u32 Hierarchy;          /* Hierarchy from SMSHOSTLIB_HIERARCHY_ET */
-    u32 Constellation;      /* Constellation from SMSHOSTLIB_CONSTELLATION_ET */
+    u32 hierarchy;          /* hierarchy from SMSHOSTLIB_HIERARCHY_ET */
+    u32 constellation;      /* constellation from
+                               SMSHOSTLIB_CONSTELLATION_ET */
 
     /* DVB-H TPS parameters */
-    u32 CellId;             /* TPS Cell ID in bits 15..0, bits 31..16 zero;
+    u32 cell_id;            /* TPS Cell ID in bits 15..0, bits 31..16 zero;
                                if set to 0xFFFFFFFF cell_id not yet recovered */
-    u32 DvbhSrvIndHP;       /* DVB-H service indication info, bit 1 -
+    u32 dvbh_srv_ind_hp;    /* DVB-H service indication info, bit 1 -
                                Time Slicing indicator, bit 0 - MPE-FEC
                                indicator */
-    u32 DvbhSrvIndLP;       /* DVB-H service indication info, bit 1 -
+    u32 dvbh_srv_ind_lp;    /* DVB-H service indication info, bit 1 -
                                Time Slicing indicator, bit 0 - MPE-FEC
                                indicator */
-    u32 IsDemodLocked;      /* 0 - not locked, 1 - locked */
+    u32 is_demod_locked;    /* 0 - not locked, 1 - locked */
 };
 
-struct RECEPTION_STATISTICS_S {
-    u32 IsRfLocked;         /* 0 - not locked, 1 - locked */
-    u32 IsDemodLocked;      /* 0 - not locked, 1 - locked */
-    u32 IsExternalLNAOn;    /* 0 - external LNA off, 1 - external LNA on */
+struct sms_rx_stats {
+    u32 is_rf_locked;       /* 0 - not locked, 1 - locked */
+    u32 is_demod_locked;    /* 0 - not locked, 1 - locked */
+    u32 is_external_lna_on; /* 0 - external LNA off, 1 - external LNA on */
 
-    u32 ModemState;         /* from SMSHOSTLIB_DVB_MODEM_STATE_ET */
+    u32 modem_state;        /* from SMSHOSTLIB_DVB_MODEM_STATE_ET */
     s32 SNR;                /* dB */
-    u32 BER;                /* Post Viterbi BER [1E-5] */
-    u32 BERErrorCount;      /* Number of erronous SYNC bits. */
-    u32 BERBitCount;        /* Total number of SYNC bits. */
-    u32 TS_PER;             /* Transport stream PER, 0xFFFFFFFF indicate N/A */
+    u32 ber;                /* Post Viterbi ber [1E-5] */
+    u32 ber_error_count;    /* Number of erroneous SYNC bits. */
+    u32 ber_bit_count;      /* Total number of SYNC bits. */
+    u32 ts_per;             /* Transport stream PER,
+                               0xFFFFFFFF indicate N/A */
     u32 MFER;               /* DVB-H frame error rate in percentage,
                                0xFFFFFFFF indicate N/A, valid only for DVB-H */
     s32 RSSI;               /* dBm */
-    s32 InBandPwr;          /* In band power in dBM */
-    s32 CarrierOffset;      /* Carrier Offset in bin/1024 */
-    u32 ErrorTSPackets;     /* Number of erroneous transport-stream packets */
-    u32 TotalTSPackets;     /* Total number of transport-stream packets */
+    s32 in_band_pwr;        /* In band power in dBM */
+    s32 carrier_offset;     /* Carrier Offset in bin/1024 */
+    u32 error_ts_packets;   /* Number of erroneous
+                               transport-stream packets */
+    u32 total_ts_packets;   /* Total number of transport-stream packets */
 
     s32 MRC_SNR;            /* dB */
     s32 MRC_RSSI;           /* dBm */
-    s32 MRC_InBandPwr;      /* In band power in dBM */
+    s32 mrc_in_band_pwr;    /* In band power in dBM */
 };
 
-/* Statistics information returned as response for
- * SmsHostApiGetStatisticsEx_Req for DVB applications, SMS1100 and up */
-struct SMSHOSTLIB_STATISTICS_DVB_S {
+/* statistics information returned as response for
+ * SmsHostApiGetstatisticsEx_Req for DVB applications, SMS1100 and up */
+struct sms_stats_dvb {
     /* Reception */
-    struct RECEPTION_STATISTICS_S ReceptionData;
+    struct sms_rx_stats reception_data;
 
     /* Transmission parameters */
-    struct TRANSMISSION_STATISTICS_S TransmissionData;
+    struct sms_tx_stats transmission_data;
 
     /* Burst parameters, valid only for DVB-H */
 #define SRVM_MAX_PID_FILTERS 8
-    struct PID_DATA_S PidData[SRVM_MAX_PID_FILTERS];
+    struct sms_pid_data pid_data[SRVM_MAX_PID_FILTERS];
+};
+
+struct RECEPTION_STATISTICS_PER_SLICES_S {
+    u32 result;
+    u32 snr;
+    s32 in_band_power;
+    u32 ts_packets;
+    u32 ets_packets;
+    u32 constellation;
+    u32 hp_code;
+    u32 tps_srv_ind_lp;
+    u32 tps_srv_ind_hp;
+    u32 cell_id;
+    u32 reason;
+    u32 request_id;
+    u32 modem_state;        /* from SMSHOSTLIB_DVB_MODEM_STATE_ET */
+
+    u32 ber;                /* Post Viterbi BER [1E-5] */
+    s32 RSSI;               /* dBm */
+    s32 carrier_offset;     /* Carrier Offset in bin/1024 */
+
+    u32 is_rf_locked;       /* 0 - not locked, 1 - locked */
+    u32 is_demod_locked;    /* 0 - not locked, 1 - locked */
+
+    u32 ber_bit_count;      /* Total number of SYNC bits. */
+    u32 ber_error_count;    /* Number of erroneous SYNC bits. */
+
+    s32 MRC_SNR;            /* dB */
+    s32 mrc_in_band_pwr;    /* In band power in dBM */
+    s32 MRC_RSSI;           /* dBm */
 };
 
 struct SRVM_SIGNAL_STATUS_S {

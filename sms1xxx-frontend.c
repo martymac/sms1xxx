@@ -220,13 +220,11 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
 static inline int
 sms1xxx_frontend_status_led_feedback(struct sms1xxx_softc *sc)
 {
-    if (sc->fe_status & FE_HAS_LOCK)
-        return sms1xxx_gpio_status_led_feedback(
-            sc,
-            (sc->sms_stat_dvb.ReceptionData.BER == 0) ?
-            SMS_LED_HI : SMS_LED_LO);
-    else
-        return sms1xxx_gpio_status_led_feedback(sc, SMS_LED_OFF);
+    if (!(sc->fe_status & FE_HAS_LOCK))
+        return (sms1xxx_gpio_status_led_feedback(sc, SMS_LED_OFF));
+
+    return (sms1xxx_gpio_status_led_feedback(sc,
+        (sc->legacy_ber == 0) ?  SMS_LED_HI : SMS_LED_LO));
 }
 
 static int
@@ -283,7 +281,7 @@ sms1xxx_frontend_read_ber(struct sms1xxx_softc *sc, u32 *ber)
     TRACE(TRACE_IOCTL,"\n");
     int err = sms1xxx_usb_getstatistics(sc);
 
-    *ber=sc->sms_stat_dvb.ReceptionData.BER;
+    *ber=sc->legacy_ber;
 
     sms1xxx_frontend_status_led_feedback(sc);
     return (err);
@@ -293,14 +291,17 @@ int
 sms1xxx_frontend_read_signal_strength(struct sms1xxx_softc *sc, u16 *strength)
 {
     TRACE(TRACE_IOCTL,"\n");
+    struct dtv_frontend_properties *c = &sc->dtv_property_cache;
     int err = sms1xxx_usb_getstatistics(sc);
 
-    if (sc->sms_stat_dvb.ReceptionData.InBandPwr < -95)
+    s32 power = (s32)(c->strength.stat[0].uvalue);
+
+    if (power < -95)
         *strength = 0;
-    else if (sc->sms_stat_dvb.ReceptionData.InBandPwr > -29)
-        *strength = 100;
+    else if (power > -29)
+        *strength = 65535;
     else
-        *strength = (sc->sms_stat_dvb.ReceptionData.InBandPwr + 95) * 3 / 2;
+        *strength = (power + 95) * 65535 / 66;
 
     sms1xxx_frontend_status_led_feedback(sc);
     return (err);
@@ -310,9 +311,10 @@ int
 sms1xxx_frontend_read_snr(struct sms1xxx_softc *sc, u16 *snr)
 {
     TRACE(TRACE_IOCTL,"\n");
+    struct dtv_frontend_properties *c = &sc->dtv_property_cache;
     int err = sms1xxx_usb_getstatistics(sc);
 
-    *snr=sc->sms_stat_dvb.ReceptionData.SNR;
+    *snr = c->cnr.stat[0].svalue / 100;
 
     sms1xxx_frontend_status_led_feedback(sc);
     return (err);
@@ -322,9 +324,10 @@ int
 sms1xxx_frontend_read_ucblocks(struct sms1xxx_softc *sc, u32 *ucblocks)
 {
     TRACE(TRACE_IOCTL,"\n");
+    struct dtv_frontend_properties *c = &sc->dtv_property_cache;
     int err = sms1xxx_usb_getstatistics(sc);
 
-    *ucblocks=sc->sms_stat_dvb.ReceptionData.ErrorTSPackets;
+    *ucblocks=c->block_error.stat[0].uvalue;
 
     sms1xxx_frontend_status_led_feedback(sc);
     return (err);
@@ -339,6 +342,11 @@ sms1xxx_frontend_set_frontend(struct sms1xxx_softc *sc,
     struct dvb_frontend_parameters *fep)
 {
     TRACE(TRACE_IOCTL,"\n");
+    struct dtv_frontend_properties *c = &sc->dtv_property_cache;
+
+    sms1xxx_frontend_stats_not_ready(sc);
+    c->strength.stat[0].uvalue = 0;
+    c->cnr.stat[0].uvalue = 0;
 
     /* Update DVBv3 fe_params state */
     memcpy(&sc->fe_params, fep,
@@ -797,7 +805,6 @@ sms1xxx_frontend_get_single_property(struct sms1xxx_softc *sc,
             break;
 
         /* Fill quality measures */
-        /* TODO stats unsupported yet */
         case DTV_STAT_SIGNAL_STRENGTH:
             tvp->u.st = c->strength;
             break;
@@ -894,4 +901,45 @@ sms1xxx_frontend_get_properties(struct sms1xxx_softc *sc,
     }
 
     return (0);
+}
+
+void
+sms1xxx_frontend_stats_not_ready(struct sms1xxx_softc *sc)
+{
+    struct dtv_frontend_properties *c = &sc->dtv_property_cache;
+    int i, n_layers;
+
+    switch (sc->mode) {
+        case DEVICE_MODE_ISDBT:
+        case DEVICE_MODE_ISDBT_BDA:
+            n_layers = 4;
+            break;
+        default:
+            n_layers = 1;
+    }
+
+    /* Global stats */
+    c->strength.len = 1;
+    c->cnr.len = 1;
+    c->strength.stat[0].scale = FE_SCALE_DECIBEL;
+    c->cnr.stat[0].scale = FE_SCALE_DECIBEL;
+
+    /* Per-layer stats */
+    c->post_bit_error.len = n_layers;
+    c->post_bit_count.len = n_layers;
+    c->block_error.len = n_layers;
+    c->block_count.len = n_layers;
+
+    /*
+     * Put all of them at FE_SCALE_NOT_AVAILABLE. They're dynamically
+     * changed when the stats become available.
+     */
+    for (i = 0; i < n_layers; i++) {
+        c->post_bit_error.stat[i].scale = FE_SCALE_NOT_AVAILABLE;
+        c->post_bit_count.stat[i].scale = FE_SCALE_NOT_AVAILABLE;
+        c->block_error.stat[i].scale = FE_SCALE_NOT_AVAILABLE;
+        c->block_count.stat[i].scale = FE_SCALE_NOT_AVAILABLE;
+    }
+
+    return;
 }

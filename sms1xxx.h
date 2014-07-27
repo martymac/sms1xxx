@@ -172,7 +172,9 @@ struct sms1xxx_softc {
     int feopen;
 
     /* DVB Statistics */
-    struct SMSHOSTLIB_STATISTICS_DVB_S sms_stat_dvb;
+    int last_per;
+    int legacy_ber;
+    int legacy_per;
 
     /* Demuxer */
     int streamrefs;

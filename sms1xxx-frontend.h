@@ -50,5 +50,6 @@ int sms1xxx_frontend_get_properties(struct sms1xxx_softc *sc,
     struct dtv_properties *);
 int sms1xxx_frontend_get_tune_settings(struct sms1xxx_softc *,
     struct dvb_frontend_tune_settings *);
+void sms1xxx_frontend_stats_not_ready(struct sms1xxx_softc *sc);
 
 #endif

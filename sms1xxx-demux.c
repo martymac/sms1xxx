@@ -1049,7 +1049,8 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
     case DMX_SET_PES_FILTER:
         {
             struct dmx_pes_filter_params *p = arg;
-            TRACE(TRACE_IOCTL,"DMX_SET_PES_FILTER (pid=%hu, f=%p)\n", p->pid, f);
+            TRACE(TRACE_IOCTL,"DMX_SET_PES_FILTER (pid=%hu, f=%p)\n",
+                p->pid, f);
 
             err = EINVAL;
             if(p->input != DMX_IN_FRONTEND) {

@@ -42,6 +42,7 @@
 #include "sms1xxx-firmware.h"
 #include "sms1xxx-endian.h"
 #include "sms1xxx-gpio.h"
+#include "sms1xxx-frontend.h"
 
 static void sms1xxx_usb_tx_cb(struct usb_xfer *, usb_error_t);
 static void sms1xxx_usb_rx_cb(struct usb_xfer *, usb_error_t);
@@ -67,6 +68,210 @@ static const struct usb_config sms1xxx_config[SMS1XXX_N_TRANSFER] = {
                    .short_xfer_ok = 1,
                },
        },
+};
+
+/*******************
+ * Stats functions *
+ *******************/
+
+static u32 sms_to_guard_interval_table[] = {
+	[0] = GUARD_INTERVAL_1_32,
+	[1] = GUARD_INTERVAL_1_16,
+	[2] = GUARD_INTERVAL_1_8,
+	[3] = GUARD_INTERVAL_1_4,
+};
+
+static u32 sms_to_code_rate_table[] = {
+	[0] = FEC_1_2,
+	[1] = FEC_2_3,
+	[2] = FEC_3_4,
+	[3] = FEC_5_6,
+	[4] = FEC_7_8,
+};
+
+static u32 sms_to_hierarchy_table[] = {
+	[0] = HIERARCHY_NONE,
+	[1] = HIERARCHY_1,
+	[2] = HIERARCHY_2,
+	[3] = HIERARCHY_4,
+};
+
+static u32 sms_to_modulation_table[] = {
+	[0] = QPSK,
+	[1] = QAM_16,
+	[2] = QAM_64,
+	[3] = DQPSK,
+};
+
+static inline int
+sms_to_mode(u32 mode)
+{
+    switch (mode) {
+        case 2:
+            return (TRANSMISSION_MODE_2K);
+        case 4:
+            return (TRANSMISSION_MODE_4K);
+        case 8:
+            return (TRANSMISSION_MODE_8K);
+    }
+    return (TRANSMISSION_MODE_AUTO);
+}
+
+static inline int
+sms_to_status(u32 is_demod_locked, u32 is_rf_locked)
+{
+    if (is_demod_locked)
+        return (FE_HAS_SIGNAL | FE_HAS_CARRIER | FE_HAS_VITERBI |
+            FE_HAS_SYNC | FE_HAS_LOCK);
+
+    if (is_rf_locked)
+        return (FE_HAS_SIGNAL | FE_HAS_CARRIER);
+
+    return (0);
+}
+
+#define ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
+
+#define convert_from_table(value, table, defval) ({         \
+    u32 __ret;                                              \
+    if (value < ARRAY_SIZE(table))                          \
+        __ret = table[value];                               \
+    else                                                    \
+        __ret = defval;                                     \
+    __ret;                                                  \
+})
+
+static inline u32
+sms_to_bw(u32 value)
+{
+    return (value * 1000000);
+}
+
+#define sms_to_guard_interval(value)                        \
+    convert_from_table(value, sms_to_guard_interval_table,  \
+        GUARD_INTERVAL_AUTO);
+
+#define sms_to_code_rate(value)                             \
+    convert_from_table(value, sms_to_code_rate_table,       \
+        FEC_NONE);
+
+#define sms_to_hierarchy(value)                             \
+    convert_from_table(value, sms_to_hierarchy_table,       \
+        FEC_NONE);
+
+#define sms_to_modulation(value)                            \
+    convert_from_table(value, sms_to_modulation_table,      \
+        FEC_NONE);
+
+static void
+sms1xxx_update_tx_params(struct sms1xxx_softc *sc,
+    struct sms_tx_stats *p)
+{
+    struct dtv_frontend_properties *c = &sc->dtv_property_cache;
+
+    c->frequency = p->frequency;
+    sc->fe_status = sms_to_status(p->is_demod_locked, 0);
+    c->bandwidth_hz = sms_to_bw(p->bandwidth);
+    c->transmission_mode = sms_to_mode(p->transmission_mode);
+    c->guard_interval = sms_to_guard_interval(p->guard_interval);
+    c->code_rate_HP = sms_to_code_rate(p->code_rate);
+    c->code_rate_LP = sms_to_code_rate(p->lp_code_rate);
+    c->hierarchy = sms_to_hierarchy(p->hierarchy);
+    c->modulation = sms_to_modulation(p->constellation);
+
+    return;
+}
+
+static void
+sms1xxx_update_per_slices(struct sms1xxx_softc *sc,
+    struct RECEPTION_STATISTICS_PER_SLICES_S *p)
+{
+    struct dtv_frontend_properties *c = &sc->dtv_property_cache;
+
+    sc->fe_status = sms_to_status(p->is_demod_locked, p->is_rf_locked);
+    c->modulation = sms_to_modulation(p->constellation);
+
+    /* signal Strength, in DBm */
+    c->strength.stat[0].uvalue = p->in_band_power * 1000;
+
+    /* Carrier to noise ratio, in DB */
+    c->cnr.stat[0].svalue = p->snr * 1000;
+
+    /* PER/BER requires demod lock */
+    if (!p->is_demod_locked)
+        return;
+
+    /* TS PER */
+    sc->last_per = c->block_error.stat[0].uvalue;
+    c->block_error.stat[0].scale = FE_SCALE_COUNTER;
+    c->block_count.stat[0].scale = FE_SCALE_COUNTER;
+    c->block_error.stat[0].uvalue += p->ets_packets;
+    c->block_count.stat[0].uvalue += p->ets_packets + p->ts_packets;
+
+    /* ber */
+    c->post_bit_error.stat[0].scale = FE_SCALE_COUNTER;
+    c->post_bit_count.stat[0].scale = FE_SCALE_COUNTER;
+    c->post_bit_error.stat[0].uvalue += p->ber_error_count;
+    c->post_bit_count.stat[0].uvalue += p->ber_bit_count;
+
+    /* Legacy PER/BER */
+    u64 tmp = p->ets_packets * 65535;
+    if (p->ts_packets + p->ets_packets)
+        tmp /= (p->ts_packets + p->ets_packets);
+    sc->legacy_per = tmp;
+
+    return;
+}
+
+static void
+sms1xxx_update_dvb_stats(struct sms1xxx_softc *sc,
+    struct sms_stats *p)
+{
+    struct dtv_frontend_properties *c = &sc->dtv_property_cache;
+
+    sc->fe_status = sms_to_status(p->is_demod_locked, p->is_rf_locked);
+
+    /* Update DVB modulation parameters */
+    c->frequency = p->frequency;
+    sc->fe_status = sms_to_status(p->is_demod_locked, 0);
+    c->bandwidth_hz = sms_to_bw(p->bandwidth);
+    c->transmission_mode = sms_to_mode(p->transmission_mode);
+    c->guard_interval = sms_to_guard_interval(p->guard_interval);
+    c->code_rate_HP = sms_to_code_rate(p->code_rate);
+    c->code_rate_LP = sms_to_code_rate(p->lp_code_rate);
+    c->hierarchy = sms_to_hierarchy(p->hierarchy);
+    c->modulation = sms_to_modulation(p->constellation);
+
+    /* update reception data */
+    c->lna = p->is_external_lna_on ? 1 : 0;
+
+    /* Carrier to noise ratio, in DB */
+    c->cnr.stat[0].svalue = p->SNR * 1000;
+
+    /* signal Strength, in DBm */
+    c->strength.stat[0].uvalue = p->in_band_pwr * 1000;
+
+    /* PER/BER requires demod lock */
+    if (!p->is_demod_locked)
+        return;
+
+    /* TS PER */
+    sc->last_per = c->block_error.stat[0].uvalue;
+    c->block_error.stat[0].scale = FE_SCALE_COUNTER;
+    c->block_count.stat[0].scale = FE_SCALE_COUNTER;
+    c->block_error.stat[0].uvalue += p->error_ts_packets;
+    c->block_count.stat[0].uvalue += p->total_ts_packets;
+
+    /* ber */
+    c->post_bit_error.stat[0].scale = FE_SCALE_COUNTER;
+    c->post_bit_count.stat[0].scale = FE_SCALE_COUNTER;
+    c->post_bit_error.stat[0].uvalue += p->ber_error_count;
+    c->post_bit_count.stat[0].uvalue += p->ber_bit_count;
+
+    /* Legacy PER/BER */
+    sc->legacy_ber = p->ber;
+
+    return;
 };
 
 /****************************
@@ -150,6 +355,8 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
     }
 
     struct SmsMsgHdr_ST *phdr = (struct SmsMsgHdr_ST *)packet;
+    void *p = phdr + 1;
+
     sms1xxx_endian_handle_message_header(phdr);
 
     TRACE(TRACE_USB_FLOW,"got %d bytes "
@@ -202,9 +409,9 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
                 while (remaining >= PACKET_SIZE) {
                     TRACE(TRACE_USB_FLOW,"sending packet %d to demuxer, "
                         "addr = %p\n",sent,
-                        ((u8*)(phdr+1))+(sent*PACKET_SIZE));
+                        ((u8*)(p))+(sent*PACKET_SIZE));
                     sms1xxx_demux_put_packet(sc,
-                        ((u8*)(phdr+1))+(sent*PACKET_SIZE));
+                        ((u8*)(p))+(sent*PACKET_SIZE));
                     sent++;
                     remaining -= PACKET_SIZE;
                 }
@@ -221,117 +428,35 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
             sms1xxx_demux_pesbuf_reset(sc, 1, "channel zap");
             DLG_COMPLETE(sc->dlg_status, DLG_TUNE_DONE);
             break;
-        /* SMS1000 - triggered - statistics messages */
-        case MSG_SMS_GET_STATISTICS_RES:
-            TRACE(TRACE_USB_FLOW,"handling MSG_SMS_GET_STATISTICS_RES\n");
-            struct SmsMsgStatisticsInfo_ST *p =
-                (struct SmsMsgStatisticsInfo_ST *)(phdr + 1);
-
-            sc->sms_stat_dvb.ReceptionData.IsDemodLocked =
-                p->Stat.IsDemodLocked;
-
-            if(sc->sms_stat_dvb.ReceptionData.IsDemodLocked) {
-                sc->sms_stat_dvb.ReceptionData.SNR = p->Stat.SNR;
-                sc->sms_stat_dvb.ReceptionData.BER = p->Stat.BER;
-                sc->sms_stat_dvb.ReceptionData.BERErrorCount =
-                    p->Stat.BERErrorCount;
-                sc->sms_stat_dvb.ReceptionData.InBandPwr = p->Stat.InBandPwr;
-                sc->sms_stat_dvb.ReceptionData.ErrorTSPackets =
-                    p->Stat.ErrorTSPackets;
-            }
-            else {
-                sc->sms_stat_dvb.ReceptionData.SNR = 0;
-                sc->sms_stat_dvb.ReceptionData.BER = 0;
-                sc->sms_stat_dvb.ReceptionData.BERErrorCount = 0;
-                sc->sms_stat_dvb.ReceptionData.InBandPwr = 0;
-                sc->sms_stat_dvb.ReceptionData.ErrorTSPackets = 0;
-            }
-            stats_updated = 1;
-            DLG_COMPLETE(sc->dlg_status, DLG_STAT_DONE);
-            break;
         /* SMS11xx statistics messages */
         case MSG_SMS_SIGNAL_DETECTED_IND:
             TRACE(TRACE_USB_FLOW,"handling MSG_SMS_SIGNAL_DETECTED_IND\n");
-            sc->sms_stat_dvb.TransmissionData.IsDemodLocked = 1;
+            sc->fe_status = FE_HAS_SIGNAL  | FE_HAS_CARRIER |
+                FE_HAS_VITERBI | FE_HAS_SYNC | FE_HAS_LOCK;
             stats_updated = 1;
             break;
         case MSG_SMS_NO_SIGNAL_IND:
             TRACE(TRACE_USB_FLOW,"handling MSG_SMS_NO_SIGNAL_IND\n");
-            sc->sms_stat_dvb.TransmissionData.IsDemodLocked = 0;
+            sc->fe_status = 0;
             stats_updated = 1;
             break;
         case MSG_SMS_TRANSMISSION_IND:
-            {
-                TRACE(TRACE_USB_FLOW,"handling MSG_SMS_TRANSMISSION_IND\n");
-
-                u32 *pMsgData = (u32 *) phdr + 1;
-
-                pMsgData++;
-                memcpy(&sc->sms_stat_dvb.TransmissionData, pMsgData,
-                        sizeof(struct TRANSMISSION_STATISTICS_S));
-
-                CORRECT_STAT_BANDWIDTH(sc->sms_stat_dvb.TransmissionData);
-                CORRECT_STAT_TRANSMISSON_MODE(
-                        sc->sms_stat_dvb.TransmissionData);
-
-                stats_updated = 1;
-                break;
-            }
+            TRACE(TRACE_USB_FLOW,"handling MSG_SMS_TRANSMISSION_IND\n");
+            sms1xxx_update_tx_params(sc, p);
+            stats_updated = 1;
+            break;
         case MSG_SMS_HO_PER_SLICES_IND:
-            {
-                TRACE(TRACE_USB_FLOW,"handling MSG_SMS_HO_PER_SLICES_IND\n");
-
-                u32 *pMsgData = (u32 *) phdr + 1;
-                struct RECEPTION_STATISTICS_S *pReceptionData =
-                        &sc->sms_stat_dvb.ReceptionData;
-                struct SRVM_SIGNAL_STATUS_S SignalStatusData;
-
-                pMsgData++;
-                SignalStatusData.result = pMsgData[0];
-                SignalStatusData.snr = pMsgData[1];
-                SignalStatusData.inBandPower = (s32) pMsgData[2];
-                SignalStatusData.tsPackets = pMsgData[3];
-                SignalStatusData.etsPackets = pMsgData[4];
-                SignalStatusData.constellation = pMsgData[5];
-                SignalStatusData.hpCode = pMsgData[6];
-                SignalStatusData.tpsSrvIndLP = pMsgData[7] & 0x03;
-                SignalStatusData.tpsSrvIndHP = pMsgData[8] & 0x03;
-                SignalStatusData.cellId = pMsgData[9] & 0xFFFF;
-                SignalStatusData.reason = pMsgData[10];
-                SignalStatusData.requestId = pMsgData[11];
-                pReceptionData->IsRfLocked = pMsgData[16];
-                pReceptionData->IsDemodLocked = pMsgData[17];
-                pReceptionData->ModemState = pMsgData[12];
-                pReceptionData->SNR = pMsgData[1];
-                pReceptionData->BER = pMsgData[13];
-                pReceptionData->RSSI = pMsgData[14];
-                CORRECT_STAT_RSSI(sc->sms_stat_dvb.ReceptionData);
-
-                pReceptionData->InBandPwr = (s32) pMsgData[2];
-                pReceptionData->CarrierOffset = (s32) pMsgData[15];
-                pReceptionData->TotalTSPackets = pMsgData[3];
-                pReceptionData->ErrorTSPackets = pMsgData[4];
-
-                /* TS PER */
-                if ((SignalStatusData.tsPackets + SignalStatusData.etsPackets)
-                        > 0) {
-                    pReceptionData->TS_PER = (SignalStatusData.etsPackets
-                            * 100) / (SignalStatusData.tsPackets
-                            + SignalStatusData.etsPackets);
-                } else {
-                    pReceptionData->TS_PER = 0;
-                }
-
-                pReceptionData->BERBitCount = pMsgData[18];
-                pReceptionData->BERErrorCount = pMsgData[19];
-
-                pReceptionData->MRC_SNR = pMsgData[20];
-                pReceptionData->MRC_InBandPwr = pMsgData[21];
-                pReceptionData->MRC_RSSI = pMsgData[22];
-
-                stats_updated = 1;
-                break;
-            }
+            TRACE(TRACE_USB_FLOW,"handling MSG_SMS_HO_PER_SLICES_IND\n");
+            sms1xxx_update_per_slices(sc, p);
+            stats_updated = 1;
+            break;
+        /* SMS1000 - triggered - statistics messages */
+        case MSG_SMS_GET_STATISTICS_RES:
+            TRACE(TRACE_USB_FLOW,"handling MSG_SMS_GET_STATISTICS_RES\n");
+            sms1xxx_update_dvb_stats(sc, p);
+            stats_updated = 1;
+            DLG_COMPLETE(sc->dlg_status, DLG_STAT_DONE);
+            break;
         case MSG_SMS_GET_VERSION_EX_RES:
             {
 #ifdef SMS1XXX_DEBUG
@@ -452,15 +577,8 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
 
     /* Update frontend status given received stats */
     if (stats_updated) {
-        if (sc->sms_stat_dvb.ReceptionData.IsDemodLocked) {
-            sc->fe_status = FE_HAS_SIGNAL | FE_HAS_CARRIER
-                | FE_HAS_VITERBI | FE_HAS_SYNC | FE_HAS_LOCK;
-
-        } else {
-            if (sc->sms_stat_dvb.ReceptionData.IsRfLocked)
-                sc->fe_status = FE_HAS_SIGNAL | FE_HAS_CARRIER;
-            else
-                sc->fe_status = 0;
+        if (!(sc->fe_status & FE_HAS_LOCK)) {
+            sms1xxx_frontend_stats_not_ready(sc);
         }
     }
 }
@@ -941,7 +1059,7 @@ sms1xxx_usb_setfrequency(struct sms1xxx_softc *sc, u32 frequency,
         return (EINVAL);
     }
 
-    sc->fe_status = FE_HAS_SIGNAL;
+    sc->fe_status = 0;
 
     Msg.Msg.msgType   = MSG_SMS_RF_TUNE_REQ;
     Msg.Msg.msgSrcId  = DVBT_BDA_CONTROL_MSG_ID;
