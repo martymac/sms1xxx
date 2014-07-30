@@ -118,6 +118,8 @@ sms1xxx_dvr_close(struct cdev *dev, int flag, int mode, struct thread *p)
     return (0);
 }
 
+/* sms1xxx_dvr_write_packet(): write a packet to dvr
+   Always return 0 (packet written or no buffer space left) */
 static int
 sms1xxx_dvr_write_packet(struct sms1xxx_softc *sc, u8 *p)
 {
@@ -157,7 +159,7 @@ sms1xxx_dvr_write_packet(struct sms1xxx_softc *sc, u8 *p)
         }
     }
 
-    return (1);
+    return (0);
 }
 
 static int
@@ -411,6 +413,9 @@ sms1xxx_demux_sectbuf_reset(struct sms1xxx_softc *sc, struct filter *f,
     }
 }
 
+/* sms1xxx_demux_write_section(): write a section to demux filter
+   Return 0 if section handled (written or no buffer space left)
+   Return 1 if section data is corrupt */
 static int
 sms1xxx_demux_write_section(struct sms1xxx_softc *sc, u8 *p,
     struct filter *f)
@@ -517,6 +522,8 @@ sms1xxx_demux_write_section(struct sms1xxx_softc *sc, u8 *p,
     return (0);
 }
 
+/* sms1xxx_demux_write_packet(): write a packet to demux filter
+   Always return 0 (packet written or no buffer space left) */
 static int
 sms1xxx_demux_write_packet(struct sms1xxx_softc *sc, u8 *p,
     struct filter *f)
@@ -1000,8 +1007,7 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
     case DMX_SET_FILTER:
         {
             /* XXX Not fully implemented: no crc checking and
-             * only uses first byte for filtering (table id)
-             */
+             * only uses first byte for filtering (table id) */
             struct dmx_sct_filter_params *p = arg;
             TRACE(TRACE_IOCTL,"DMX_SET_FILTER  (pid=%hu, value=%d, f=%p)\n",
                 p->pid, p->filter.filter[0], f);
@@ -1032,7 +1038,6 @@ sms1xxx_demux_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
                     break;
                 }
             }
-
             sms1xxx_demux_sectbuf_reset(sc, f, 0, "init");
             f->type = FILTER_TYPE_SEC;
             /* XXX f->output = <undefined because irrelevant here> */
@@ -1270,13 +1275,13 @@ sms1xxx_demux_exit(struct sms1xxx_softc *sc)
 void
 sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
 {
-    int i, done = 0, dvrdone = 0;
+    int i, do_dvr = 1;
     u16 pid = TS_GET_PID(p);
 #ifdef SMS1XXX_DIAGNOSTIC
     u8 cc = TS_GET_CC(p);
 #endif
 
-    for(i = 0; i < MAX_FILTERS && !done ; ++i) {
+    for(i = 0; i < MAX_FILTERS; ++i) {
         struct filter *f = &sc->filter[i];
         if(pid != f->pid && f->pid != PIDALL) {
             continue;
@@ -1286,11 +1291,11 @@ sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
            - to demux0.n if f->output == DMX_OUT_TSDEMUX_TAP */
         if(f->type == FILTER_TYPE_PES) {
             if(f->output == DMX_OUT_TS_TAP) {
-                if(!dvrdone)
-                    dvrdone = sms1xxx_dvr_write_packet(sc, p);
+                if(do_dvr)
+                    do_dvr = sms1xxx_dvr_write_packet(sc, p);
             }
             else /* f->output == DMX_OUT_TSDEMUX_TAP */
-                done = sms1xxx_demux_write_packet(sc, p, f);
+                sms1xxx_demux_write_packet(sc, p, f);
         }
         /* Section output to demux0.n devices */
         else if(f->type == FILTER_TYPE_SEC) {
@@ -1298,11 +1303,10 @@ sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
             u8 cc = TS_GET_CC(p);
 #endif
             if(cc == f->cc)
-                done = sms1xxx_demux_write_section(sc, p, f);
+                sms1xxx_demux_write_section(sc, p, f);
             else {
                 sms1xxx_demux_sectbuf_reset(sc, f, 1,
                    "discontinuity");
-                done = 1;
             }
 #ifndef SMS1XXX_DIAGNOSTIC
             f->cc = (cc + 1) & 0xF;
@@ -1310,7 +1314,7 @@ sms1xxx_demux_put_packet(struct sms1xxx_softc *sc, u8 *p)
         }
 #ifdef SMS1XXX_DIAGNOSTIC
         if(cc != sc->filter[i].cc &&
-        cc != sc->filter[i].cc - 1) {
+	        cc != sc->filter[i].cc - 1) {
             WARN("discontinuity for pid: %d expected: %x "
                "got: %x\n", pid,sc->filter[i].cc,cc);
         }
