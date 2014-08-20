@@ -229,11 +229,9 @@ sms1xxx_update_dvb_stats(struct sms1xxx_softc *sc,
 {
     struct dtv_frontend_properties *c = &sc->dtv_property_cache;
 
-    sc->fe_status = sms_to_status(p->is_demod_locked, p->is_rf_locked);
-
     /* Update DVB modulation parameters */
     c->frequency = p->frequency;
-    sc->fe_status = sms_to_status(p->is_demod_locked, 0);
+    sc->fe_status = sms_to_status(p->is_demod_locked, p->is_rf_locked);
     c->bandwidth_hz = sms_to_bw(p->bandwidth);
     c->transmission_mode = sms_to_mode(p->transmission_mode);
     c->guard_interval = sms_to_guard_interval(p->guard_interval);
@@ -355,8 +353,6 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
     }
 
     struct sms_msg_hdr *phdr = (struct sms_msg_hdr *)packet;
-    void *p = phdr + 1;
-
     sms1xxx_endian_handle_message_header(phdr);
 
     TRACE(TRACE_USB_FLOW,"got %d bytes "
@@ -409,9 +405,9 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
                 while (remaining >= PACKET_SIZE) {
                     TRACE(TRACE_USB_FLOW,"sending packet %d to demuxer, "
                         "addr = %p\n",sent,
-                        ((u8*)(p))+(sent*PACKET_SIZE));
+                        ((u8*)(phdr + 1))+(sent*PACKET_SIZE));
                     sms1xxx_demux_put_packet(sc,
-                        ((u8*)(p))+(sent*PACKET_SIZE));
+                        ((u8*)(phdr + 1))+(sent*PACKET_SIZE));
                     sent++;
                     remaining -= PACKET_SIZE;
                 }
@@ -431,7 +427,7 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
         /* SMS11xx statistics messages */
         case MSG_SMS_SIGNAL_DETECTED_IND:
             TRACE(TRACE_USB_FLOW,"handling MSG_SMS_SIGNAL_DETECTED_IND\n");
-            sc->fe_status = FE_HAS_SIGNAL  | FE_HAS_CARRIER |
+            sc->fe_status = FE_HAS_SIGNAL | FE_HAS_CARRIER |
                 FE_HAS_VITERBI | FE_HAS_SYNC | FE_HAS_LOCK;
             stats_updated = 1;
             break;
@@ -442,18 +438,19 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
             break;
         case MSG_SMS_TRANSMISSION_IND:
             TRACE(TRACE_USB_FLOW,"handling MSG_SMS_TRANSMISSION_IND\n");
-            sms1xxx_update_tx_params(sc, p);
+            sms1xxx_update_tx_params(sc, (struct sms_tx_stats *)(phdr + 1));
             stats_updated = 1;
             break;
         case MSG_SMS_HO_PER_SLICES_IND:
             TRACE(TRACE_USB_FLOW,"handling MSG_SMS_HO_PER_SLICES_IND\n");
-            sms1xxx_update_per_slices(sc, p);
+            sms1xxx_update_per_slices(sc, (struct RECEPTION_STATISTICS_PER_SLICES_S *)(phdr + 1));
             stats_updated = 1;
             break;
         /* SMS1000 - triggered - statistics messages */
         case MSG_SMS_GET_STATISTICS_RES:
             TRACE(TRACE_USB_FLOW,"handling MSG_SMS_GET_STATISTICS_RES\n");
-            sms1xxx_update_dvb_stats(sc, p);
+            sms1xxx_update_dvb_stats(sc,
+				&(((struct sms_msg_statistics_info *)(phdr + 1))->stat));
             stats_updated = 1;
             DLG_COMPLETE(sc->dlg_status, DLG_STAT_DONE);
             break;
