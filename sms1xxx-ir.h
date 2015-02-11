@@ -37,9 +37,9 @@
 /* Board IR configuration */
 struct sms1xxx_ir {
     /* IR module state */
-    u8  module_avail;    /* Has board an IR module ?
+    int module_avail;    /* Has board an IR module ?
                             XXX Should be based on GPIO cfg ? */
-    u8  module_started;  /* Is IR module started ? */
+    int module_started;  /* Is IR module started ? */
     struct cdev *dev;    /* ir0 device */
 
     /* MSG_SMS_START_IR_REQ Msg parameters */

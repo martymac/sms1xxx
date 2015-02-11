@@ -88,7 +88,7 @@ struct sms1xxx_gpio {
     /* Other */
     u32 get_res;          /* last GET result */
     int status_led_state; /* current status led state */
-    u8 use_lna;           /* sysctl, use LNA when tuning ? */
+    int use_lna;          /* sysctl, use LNA when tuning ? */
 };
 
 int sms1xxx_gpio_get_pin_params(u32, u32 *, u32 *, u32 *);
