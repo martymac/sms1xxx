@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2014 Ganaël Laplanche
+ * Copyright (C) 2015 Ganaël Laplanche
  *
  *   Inspired from VLC code :
  *   modules/access/dtv/linux.c (Copyright (C) 2011 Rémi Denis-Courmont)
@@ -24,7 +24,9 @@
 #include <unistd.h>
 #include <sysexits.h>
 #include <err.h>
+#include <errno.h>
 #include <sys/ioctl.h>
+#include <strings.h>
 
 #include <linux/dvb/frontend.h>
 #include <linux/dvb/version.h>
@@ -32,6 +34,7 @@
 int main(void)
 {
     int fd = -1;
+    int err = 0;
 
     if((fd = open("/dev/dvb/adapter0/frontend0", O_RDWR)) < 0) {
         errx(EX_IOERR, "Cannot open frontend device /dev/dvb/adapter0/frontend0");
@@ -40,29 +43,14 @@ int main(void)
         printf("Successfully opened frontend0 device !\n");
     }
 
-    struct dtv_property prop[2] = {
-        { .cmd = DTV_API_VERSION },
-        { .cmd = DTV_ENUM_DELSYS },
-    };
-    struct dtv_properties props = {
-        .num = 2,
-        .props = prop
-    };
+    struct dvb_frontend_event ev;
 
-    if (ioctl(fd, FE_GET_PROPERTY, &props) != 0) {
-        close(fd);
-        errx(EX_IOERR, "FE_GET_PROPERTY ioctl() failed\n");
-    }
+    /* XXX FE_GET_EVENT always returns EWOULDBLOCK */
+    err = ioctl(fd, FE_GET_EVENT, &ev);
     close(fd);
 
-    printf("Found kernel API v%u.%u, user API v%u.%u\n",
-        prop[0].u.data >> 8, prop[0].u.data & 0xFF,
-        DVB_API_VERSION, DVB_API_VERSION_MINOR);
-
-    for (size_t i = 0; i < prop[1].u.buffer.len; i++) {
-        uint8_t sys = prop[1].u.buffer.data[i];
-        printf("Found system %u\n", sys);
-    }
+    printf("ioctl() returned %d (errno = %d)\n", err, errno);
+    printf("fe_status = %d\n", ev.status);
 
     return (EX_OK);
 }
