@@ -112,16 +112,24 @@ sms1xxx_frontend_close(struct cdev *dev, int flag, int mode, struct thread *p)
 static int
 sms1xxx_frontend_poll(struct cdev *dev, int events, struct thread *p)
 {
+    struct sms1xxx_softc *sc = dev->si_drv1;
     int revents = 0;
+
     TRACE(TRACE_POLL,"thread=%p events=%d\n", p, events);
 
-    /* Not implemented, so no blocking */
-    if(events & (POLLIN | POLLRDNORM))
-        revents |= events & (POLLIN | POLLRDNORM);
-    if(events & (POLLOUT | POLLWRNORM))
-        revents |= events & (POLLOUT | POLLWRNORM);
-    if (events & (POLLPRI | POLLRDBAND))
-        revents |= events & (POLLPRI | POLLRDBAND);
+    /*
+     * XXX Limited events support, see FE_GET_EVENT for more explanations.
+     * Block only if fe_status has changed since last FE_GET_EVENT.
+     */
+    if(sc->fe_event) {
+        revents |= events & (POLLIN | POLLRDNORM | POLLPRI);
+        TRACE(TRACE_POLL,"poll not blocking\n");
+    }
+#ifdef SMS1XXX_DEBUG
+    else {
+        TRACE(TRACE_POLL,"will block\n");
+    }
+#endif
 
     return (revents);
 }
@@ -180,16 +188,22 @@ sms1xxx_frontend_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
             break;
         case FE_GET_EVENT:
             {
-                /* XXX Events are not implemented (yet)
-                 * we just return a dummy and EWOULDBLOCK.
+                /*
+                 * XXX Events are not fully implemented, just simulated.
+                 * This ioctl will fail and return EWOULDBLOCK if fe_status
+                 * has not changed (fe_event == 0) since its last call.
+                 * When successfull, the ioctl returns an event generated on the
+                 * fly, corresponding to the current state of the frontend.
+                 *
+                 * In other words, we simulate a queue with a single event.
                  */
                 struct dvb_frontend_event *ev = arg;
-                fe_status_t st;
-                fe->read_status(sc, &st);
-                ev->status = st;
+                if(!sc->fe_event)
+                    err = EWOULDBLOCK;  /* fe_status has not changed, block! */
                 fe->get_frontend(sc,&ev->parameters);
-                err = EWOULDBLOCK;
-                TRACE(TRACE_IOCTL,"FE_GET_EVENT (status=%d)\n",st);
+                fe->read_status(sc,&ev->status);
+                sc->fe_event = 0;
+                TRACE(TRACE_IOCTL,"FE_GET_EVENT (status=%d)\n",ev->status);
                 break;
             }
         case FE_GET_FRONTEND:

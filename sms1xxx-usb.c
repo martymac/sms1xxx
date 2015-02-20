@@ -430,6 +430,8 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
         case MSG_SMS_RF_TUNE_RES:
             TRACE(TRACE_USB_FLOW,"handling MSG_SMS_RF_TUNE_RES\n");
             sms1xxx_demux_pesbuf_reset(sc, 1, "channel zap");
+            sc->fe_status = 0;
+            stats_updated = 1;
             DLG_COMPLETE(sc->dlg_status, DLG_TUNE_DONE);
             break;
         /* SMS11xx statistics messages */
@@ -585,6 +587,7 @@ sms1xxx_usb_get_packets(struct sms1xxx_softc *sc, u8 *packet, u32 bytes)
         if (!(sc->fe_status & FE_HAS_LOCK)) {
             sms1xxx_frontend_stats_not_ready(sc);
         }
+        sc->fe_event = 1;
     }
 }
 
@@ -1063,8 +1066,6 @@ sms1xxx_usb_setfrequency(struct sms1xxx_softc *sc, u32 frequency,
         ERR("invalid frequency specified %d\n", frequency);
         return (EINVAL);
     }
-
-    sc->fe_status = 0;
 
     Msg.Msg.msg_type   = MSG_SMS_RF_TUNE_REQ;
     Msg.Msg.msg_src_id  = DVBT_BDA_CONTROL_MSG_ID;

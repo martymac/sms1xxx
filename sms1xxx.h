@@ -169,6 +169,8 @@ struct sms1xxx_softc {
     struct dvb_frontend_parameters fe_params;           /* DVBv3 FE struct */
     struct dtv_frontend_properties dtv_property_cache;  /* DVBv5 cache */
     fe_status_t fe_status;
+    int fe_event;                                       /* XXX Simulate a very basic dvb_frontend_event.
+                                                           1: means fe_status has changed */
     int feopen;
 
     /* DVB Statistics */
