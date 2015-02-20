@@ -120,6 +120,8 @@ sms_to_mode(u32 mode)
 static inline int
 sms_to_status(u32 is_demod_locked, u32 is_rf_locked)
 {
+    TRACE(TRACE_USB,"\n");
+
     if (is_demod_locked)
         return (FE_HAS_SIGNAL | FE_HAS_CARRIER | FE_HAS_VITERBI |
             FE_HAS_SYNC | FE_HAS_LOCK);
@@ -169,6 +171,8 @@ sms1xxx_update_tx_params(struct sms1xxx_softc *sc,
 {
     struct dtv_frontend_properties *c = &sc->dtv_property_cache;
 
+    TRACE(TRACE_USB,"\n");
+
     c->frequency = p->frequency;
     sc->fe_status = sms_to_status(p->is_demod_locked, 0);
     c->bandwidth_hz = sms_to_bw(p->bandwidth);
@@ -187,6 +191,8 @@ sms1xxx_update_per_slices(struct sms1xxx_softc *sc,
     struct RECEPTION_STATISTICS_PER_SLICES_S *p)
 {
     struct dtv_frontend_properties *c = &sc->dtv_property_cache;
+
+    TRACE(TRACE_USB,"\n");
 
     sc->fe_status = sms_to_status(p->is_demod_locked, p->is_rf_locked);
     c->modulation = sms_to_modulation(p->constellation);
@@ -228,6 +234,8 @@ sms1xxx_update_dvb_stats(struct sms1xxx_softc *sc,
     struct sms_stats *p)
 {
     struct dtv_frontend_properties *c = &sc->dtv_property_cache;
+
+    TRACE(TRACE_USB,"\n");
 
     /* Update DVB modulation parameters */
     c->frequency = p->frequency;
