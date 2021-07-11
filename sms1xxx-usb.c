@@ -36,6 +36,10 @@
 #include <sys/systm.h>
 #include <sys/proc.h>
 
+/* mutex(9) stuff */
+#include <sys/lock.h>
+#include <sys/mutex.h>
+
 #include "sms1xxx.h"
 #include "sms1xxx-usb.h"
 #include "sms1xxx-demux.h"

@@ -36,6 +36,14 @@
 #include <sys/types.h>
 #include <sys/uio.h>
 
+/* mutex(9) stuff */
+#include <sys/param.h>
+#include <sys/lock.h>
+#include <sys/mutex.h>
+
+/* EVENTHANDLER(9) stuff */
+#include <sys/eventhandler.h>
+
 /* poll(2) stuff */
 #include <sys/poll.h>
 
@@ -613,7 +621,6 @@ sms1xxx_demux_clone(void *arg, struct ucred *cred, char *name,
         if(*dev != NULL) {
             TRACE(TRACE_MODULE,"created demux0.%d device, addr=%p\n",
                 filtnr, *dev);
-            (*dev)->si_flags |= SI_CHEAPCLONE;
             (*dev)->si_drv1 = sc;
             (*dev)->si_drv2 = &sc->filter[filtnr];  /* map filter to device */
             sc->filter[filtnr].dev = *dev;          /* map device to filter */

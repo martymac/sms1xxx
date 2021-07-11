@@ -41,6 +41,10 @@
 #include <sys/bus.h>
 #include <sys/module.h>
 
+/* mutex(9) stuff */
+#include <sys/lock.h>
+#include <sys/mutex.h>
+
 #include "sms1xxx.h"
 #include "sms1xxx-firmware.h"
 #include "sms1xxx-usb.h"

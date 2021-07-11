@@ -10,6 +10,7 @@
     * Update sample channel list apps/conf/channels-Paris.conf
     * Add a few test utilities within apps/tests
     * Code cleanup
+    * Fix build on FreeBSD 13.0-RELEASE
 
 20120113 ('Mummy, Daddy, let's sing !'):
     * Functionnalities Sync'ed with Linux kernel 3.2.1 (no functional changes)

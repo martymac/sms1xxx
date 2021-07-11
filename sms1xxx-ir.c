@@ -35,6 +35,11 @@
 #include <sys/types.h>
 #include <sys/uio.h>
 
+/* mutex(9) stuff */
+#include <sys/param.h>
+#include <sys/lock.h>
+#include <sys/mutex.h>
+
 /* Read flags (O_NONBLOCK) */
 #include <sys/fcntl.h>
 

@@ -36,6 +36,7 @@
 #include <sys/poll.h>
 
 /* File-descriptor ioctls */
+#include <sys/types.h>
 #include <sys/filio.h>
 
 /* Our stuff */
