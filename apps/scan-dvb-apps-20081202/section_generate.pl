@@ -4,6 +4,7 @@ use strict;
 
 die "no section perl file given" unless @ARGV;
 
+use lib "./";
 my $h = require($ARGV[0]);
 
 our $basename;
