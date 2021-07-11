@@ -107,8 +107,8 @@ Loading and using the driver :
 Run :
 kldload <your firmware module(s)>
 e.g. :
-  kldload stellar_dvbt.fw
-  kldload stellar_dvbh.fw
+  kldload stellar_dvbt.ko
+  kldload stellar_dvbh.ko
   [...]
 Depending on the mode(s) you wish to run.
 
@@ -198,26 +198,17 @@ dd if=/dev/dvb/adapter0/dvr0 of=mystream.ts
 Other applications :
 ********************
 
-* ffplay (multimedia/ffmpeg) is a powerful player, and currently the only
-  one that has been able to play h.264 'HD' streams (use ffmpeg or
-  fmpeg-devel port with version >= SVN-r19631 a.k.a 20090812 and try
-  -skiploop and -skipframe options if necessary).
+* ffplay (multimedia/ffmpeg)
 
 * xine (multimedia/xine) can be used to watch TV directly (without
   having to use tzap) : xine 'dvb://MYCHANNEL'.
-
-* Kaffeine (multimedia/kaffeine) is a great KDE application and has a
-  very nice, user-friendly interface, but it can be unstable sometimes.
 
 * vlc (multimedia/vlc) natively supports DVB : just check the V4L option
   before building the port.
 
   Then, you should be able to watch TV by launching it this way :
 
-  vlc dvb:// --dvb-frequency=562000000 \
-    --dvb-adapter=0 \
-    --dvb-bandwidth=8 \
-    --program=1543
+  vlc dtv://frequency=562000000:bandwidth=8
 
   or by selecting the "open capture device" entry in the "media' menu.
 

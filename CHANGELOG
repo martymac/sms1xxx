@@ -1,4 +1,4 @@
-2014????
+2021????
     * Updated DVB API headers to 5.10 (Linux kernel 3.14)
     * Add support FE_SET_PROPERTY and FE_GET_PROPERTY frontend ioctls (DVBv5)
     * Add support for DMX_ADD_PID and DMX_REMOVE_PID demuxer ioctls
@@ -6,6 +6,7 @@
       for DMX_SET_PES_FILTER demuxer ioctl
     * Add support for DMX_GET_PES_PIDS demuxer ioctl
     * Use DVBv5 statistics API
+    * Add basic events support (FE_GET_EVENT)
     * Update sample channel list apps/conf/channels-Paris.conf
     * Add a few test utilities within apps/tests
     * Code cleanup
