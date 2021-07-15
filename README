@@ -1,6 +1,11 @@
 About this driver :
 *******************
 
+--
+WARNING: This driver implements DVB API v3 only and should be considered
+deprecated, you should probably use Webcamd (multimedia/webcamd) instead.
+--
+
 Sms1xxx is a native FreeBSD driver for Siano-based DVB-T USB devices.
 It should work on any version of FreeBSD >= 8.0 (see older versions
 for FreeBSD 7.x).
